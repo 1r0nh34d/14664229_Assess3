@@ -12,8 +12,8 @@ using UnityEngine.UI;
 using static BuilderUtils;
 
 // PacStudent > Build Level1 Scene creates the animation clips, Animator Controllers, pellet prefabs and the
-// Level1 scene (full level layout from LevelGenerator, PacStudent, the sharks, the HUD and the background music).
-// Re-running it rebuilds Level1 from scratch. PacStudent > Assign Audio Clips only re-links the audio.
+// Level1 scene (full level layout from LevelGenerator, PacStudent, the sharks, the HUD and the GameManager).
+// Re-running it rebuilds Level1 from scratch. PacStudent > Refresh Audio Library only re-links the audio clips.
 public static class Level1SceneBuilder
 {
     const string TilesDir = "Assets/Tiles";
@@ -42,7 +42,6 @@ public static class Level1SceneBuilder
         GameAudio audioLibrary = RefreshAudioLibrary();
 
         BuildScene(pacController, ghostControllers, pelletPrefab, powerPrefab, cherryPrefab, audioLibrary);
-        AssignAudioClips();
 
         SetBuildScenes();
         AssetDatabase.SaveAssets();
@@ -50,36 +49,6 @@ public static class Level1SceneBuilder
         string report = "Level1 scene built.";
         if (warnings.Count > 0) report += "\nStill to do:\n - " + string.Join("\n - ", warnings);
         Debug.Log(report);
-    }
-
-    // ---------------------------------------------------------------- Audio
-
-    [MenuItem("PacStudent/Assign Audio Clips")]
-    public static void AssignAudioClips()
-    {
-        Scene scene = SceneManager.GetActiveScene();
-        if (scene.path != ScenePath) scene = EditorSceneManager.OpenScene(ScenePath);
-
-        List<AudioClip> clips = AssetDatabase.FindAssets("t:AudioClip", new[] { AudioDir })
-            .Select(guid => AssetDatabase.LoadAssetAtPath<AudioClip>(AssetDatabase.GUIDToAssetPath(guid)))
-            .ToList();
-        AudioClip Find(string clipName)
-        {
-            AudioClip clip = clips.FirstOrDefault(c => string.Equals(c.name, clipName, System.StringComparison.OrdinalIgnoreCase));
-            if (clip == null) Debug.LogWarning($"Audio clip '{clipName}' missing from {AudioDir}");
-            return clip;
-        }
-
-        BackgroundMusicController music = Object.FindAnyObjectByType<BackgroundMusicController>();
-        music.introMusic = Find("Music_Intro");
-        music.normalMusic = Find("Music_GhostNormal");
-        // Not played by the A3 scene, but they must be in the Audio Clips folder
-        foreach (string other in new[] { "Music_StartScene", "Music_GhostScared", "Music_GhostDead", "SFX_Move", "SFX_EatPellet",
-                     "SFX_EatGhost", "SFX_EatCherry", "SFX_WallCollision", "SFX_Death" })
-            Find(other);
-
-        EditorUtility.SetDirty(music);
-        EditorSceneManager.SaveScene(scene);
     }
 
     // ---------------------------------------------------------------- Animation
@@ -276,6 +245,7 @@ public static class Level1SceneBuilder
         renderer.sprite = sprite;
         renderer.sortingOrder = 1;
         go.AddComponent<Pellet>().isPowerPellet = power;
+        AddTrigger(go, power ? 0.3f : 0.15f);
         if (controller != null) go.AddComponent<Animator>().runtimeAnimatorController = controller;
         return SavePrefab(go, name);
     }
@@ -290,7 +260,25 @@ public static class Level1SceneBuilder
         renderer.sortingOrder = 50;
         renderer.maskInteraction = SpriteMaskInteraction.VisibleInsideMask;
         go.AddComponent<Cherry>();
+        AddTrigger(go, 0.4f);
         return SavePrefab(go, "BonusCherry");
+    }
+
+    static CircleCollider2D AddTrigger(GameObject go, float radius)
+    {
+        CircleCollider2D collider = go.AddComponent<CircleCollider2D>();
+        collider.isTrigger = true;
+        collider.radius = radius;
+        return collider;
+    }
+
+    // Only used so trigger messages are sent; Kinematic, so it never moves anything or responds to collisions
+    static void AddKinematicBody(GameObject go, float radius)
+    {
+        Rigidbody2D body = go.AddComponent<Rigidbody2D>();
+        body.bodyType = RigidbodyType2D.Kinematic;
+        body.sleepMode = RigidbodySleepMode2D.NeverSleep;
+        AddTrigger(go, radius);
     }
 
     static GameObject SavePrefab(GameObject go, string name)
@@ -355,11 +343,14 @@ public static class Level1SceneBuilder
         // Whole level plus a strip top and bottom for the HUD; fits 16:9 and 4:3
         CreateCamera(LevelGenerator.Rows / 2f + 3f);
 
-        GameObject audioObject = new GameObject("BackgroundMusic");
-        AudioSource source = audioObject.AddComponent<AudioSource>();
-        source.playOnAwake = false;
-        source.volume = 0.6f;
-        audioObject.AddComponent<BackgroundMusicController>();
+        // Countdown, score, lives, timers, ghost states and music (intro during the countdown, then the state music)
+        GameObject managerObject = new GameObject("GameManager");
+        GameManager game = managerObject.AddComponent<GameManager>();
+        game.levelKey = "Level1";
+        game.levelName = "Level 1";
+        game.audioLibrary = audioLibrary;
+        game.musicSource = AddAudioSource(managerObject, 0.6f);
+        game.sfxSource = AddAudioSource(managerObject, 1f);
 
         // ---- Level: Grid > Walls tilemap, Pellets, PowerPellets
         GameObject level = new GameObject("Level");
@@ -426,14 +417,27 @@ public static class Level1SceneBuilder
         pacStudent.dust.transform.localPosition = new Vector3(0f, -0.35f, 0f);
         ParticleSystem.EmissionModule dustEmission = pacStudent.dust.emission;
         dustEmission.enabled = false;
+        pacStudent.wallBump = CreateParticles("WallBump", pac.transform, Color.white, Aqua, 0.3f, 0.35f, 3f, 0f, 14, false, 0f, 6);
+        pacStudent.deathEffect = CreateParticles("DeathBubbles", pac.transform, Aqua, new Color(0.9f, 1f, 1f), 0.6f, 1.4f, 2.5f, 0f, 45, false, -0.4f, 7);
+        AddKinematicBody(pac, 0.35f);
+        game.pacStudent = pacStudent;
 
         GameObject ghosts = Child(characters.transform, "Ghosts");
+        game.ghosts = new GhostController[SharkNames.Length];
         for (int i = 0; i < SharkNames.Length; i++)
         {
             GameObject ghost = SpriteObject(ghosts.transform, $"Ghost{i + 1}_{SharkNames[i]}",
                 LoadSprite($"{SpritesDir}/Ghosts/Shark_{SharkNames[i]}_Right_01.png"), 4);
-            ghost.transform.position = LevelGenerator.CellToWorld(new Vector2Int(12 + i, 14));
-            ghost.AddComponent<Animator>().runtimeAnimatorController = ghostControllers[i];
+            Vector2Int start = new Vector2Int(12 + i, 14);
+            ghost.transform.position = LevelGenerator.CellToWorld(start);
+            Animator animator = ghost.AddComponent<Animator>();
+            animator.runtimeAnimatorController = ghostControllers[i];
+            AddKinematicBody(ghost, 0.35f);
+            GhostController controller = ghost.AddComponent<GhostController>();
+            controller.ghostNumber = i + 1;
+            controller.startCell = start;
+            controller.animator = animator;
+            game.ghosts[i] = controller;
             CreateGhostLabel(ghost.transform, i + 1);
         }
 
@@ -443,8 +447,9 @@ public static class Level1SceneBuilder
         mask.transform.localScale = new Vector3(LevelGenerator.Cols, LevelGenerator.Rows, 1f);
         CherryController cherry = new GameObject("CherryController").AddComponent<CherryController>();
         cherry.cherryPrefab = cherryPrefab;
+        game.cherryController = cherry;
 
-        BuildHud("Level 1");
+        game.hud = BuildHud("Level 1");
         CreateEventSystem();
 
         EditorSceneManager.SaveScene(scene, ScenePath);

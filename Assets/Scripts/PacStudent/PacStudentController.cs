@@ -12,6 +12,8 @@ public class PacStudentController : MonoBehaviour
     public AudioSource moveSource;
     public GameAudio audioLibrary;
     public ParticleSystem dust;
+    public ParticleSystem wallBump;
+    public ParticleSystem deathEffect;
 
     Key lastInput = Key.None;
     Key currentInput = Key.None;
@@ -23,6 +25,8 @@ public class PacStudentController : MonoBehaviour
     float lerpProgress;
     bool isLerping;
     bool isMoving;
+    bool controlEnabled;
+    bool pressedThisFrame;
 
     public Vector2Int Cell => cell;
 
@@ -33,6 +37,8 @@ public class PacStudentController : MonoBehaviour
 
     void Update()
     {
+        if (!controlEnabled) return;
+
         GatherInput();
 
         if (isLerping)
@@ -53,13 +59,20 @@ public class PacStudentController : MonoBehaviour
     // Only overwritten when the player presses a new key
     void GatherInput()
     {
+        pressedThisFrame = false;
         Keyboard keyboard = Keyboard.current;
         if (keyboard == null) return;
 
-        if (keyboard.wKey.wasPressedThisFrame) lastInput = Key.W;
-        else if (keyboard.aKey.wasPressedThisFrame) lastInput = Key.A;
-        else if (keyboard.sKey.wasPressedThisFrame) lastInput = Key.S;
-        else if (keyboard.dKey.wasPressedThisFrame) lastInput = Key.D;
+        if (keyboard.wKey.wasPressedThisFrame) SetLastInput(Key.W);
+        else if (keyboard.aKey.wasPressedThisFrame) SetLastInput(Key.A);
+        else if (keyboard.sKey.wasPressedThisFrame) SetLastInput(Key.S);
+        else if (keyboard.dKey.wasPressedThisFrame) SetLastInput(Key.D);
+    }
+
+    void SetLastInput(Key key)
+    {
+        lastInput = key;
+        pressedThisFrame = true;
     }
 
     static Vector2Int KeyToDirection(Key key)
@@ -80,7 +93,16 @@ public class PacStudentController : MonoBehaviour
         return tile == 0 || tile == 5 || tile == 6;
     }
 
-    bool CanMove(Key key) => key != Key.None && IsWalkable(cell + KeyToDirection(key));
+    // Stepping off the left/right edge of the map from the tunnel row is a teleport
+    static bool IsTeleportExit(Vector2Int cell) =>
+        cell.y >= 0 && cell.y < LevelGenerator.Rows && (cell.x < 0 || cell.x >= LevelGenerator.Cols);
+
+    bool CanMove(Key key)
+    {
+        if (key == Key.None) return false;
+        Vector2Int next = cell + KeyToDirection(key);
+        return IsWalkable(next) || IsTeleportExit(next);
+    }
 
     // Try lastInput first; if that is blocked keep going in currentInput; if that is blocked too, stop
     void TryMove()
@@ -103,6 +125,14 @@ public class PacStudentController : MonoBehaviour
     void StartLerp(Vector2Int direction)
     {
         Vector2Int next = cell + direction;
+        if (IsTeleportExit(next))
+        {
+            // Jump to the tunnel on the other side, then keep moving inwards
+            cell.x = next.x < 0 ? LevelGenerator.Cols - 1 : 0;
+            transform.position = LevelGenerator.CellToWorld(cell);
+            next = cell + direction;
+        }
+
         targetCell = next;
         lerpFrom = transform.position;
         lerpTo = LevelGenerator.CellToWorld(next);
@@ -126,11 +156,33 @@ public class PacStudentController : MonoBehaviour
 
     void StopMoving()
     {
-        if (!isMoving) return;
-        isMoving = false;
-        animator.speed = 0f;
-        SetDust(false);
-        if (moveSource != null) moveSource.Stop();
+        if (isMoving)
+        {
+            isMoving = false;
+            animator.speed = 0f;
+            SetDust(false);
+            if (moveSource != null) moveSource.Stop();
+
+            // First frame of running into a wall
+            Vector2Int blocked = KeyToDirection(currentInput);
+            if (LevelGenerator.IsWall(cell + blocked)) BumpWall(blocked);
+        }
+        else if (pressedThisFrame && LevelGenerator.IsWall(cell + KeyToDirection(lastInput)))
+        {
+            BumpWall(KeyToDirection(lastInput));
+        }
+    }
+
+    // Particles and sound at the point where PacStudent meets the wall
+    void BumpWall(Vector2Int direction)
+    {
+        Vector3 worldDirection = new Vector3(direction.x, -direction.y, 0f);
+        if (wallBump != null)
+        {
+            wallBump.transform.position = transform.position + worldDirection * 0.5f;
+            wallBump.Play();
+        }
+        GameManager.Instance.PlaySfx(audioLibrary.wallBump);
     }
 
     void PlayDirectionAnimation(Vector2Int direction)
@@ -148,6 +200,47 @@ public class PacStudentController : MonoBehaviour
         ParticleSystem.EmissionModule emission = dust.emission;
         emission.enabled = on;
         if (on && !dust.isPlaying) dust.Play();
+    }
+
+    // Collisions are registered with triggers (kinematic Rigidbody2D, no physics response).
+    // Stay rather than Enter so anything already overlapping when control is enabled (the pellet under the
+    // start cell, a shark that recovers on top of PacStudent) still counts.
+    void OnTriggerStay2D(Collider2D other)
+    {
+        if (!controlEnabled) return;
+
+        if (other.TryGetComponent(out Pellet pellet)) GameManager.Instance.EatPellet(pellet);
+        else if (other.TryGetComponent(out Cherry cherry)) GameManager.Instance.EatCherry(cherry);
+        else if (other.TryGetComponent(out GhostController ghost)) GameManager.Instance.PacStudentHitGhost(ghost);
+    }
+
+    public void SetControl(bool enabled)
+    {
+        controlEnabled = enabled;
+        if (!enabled)
+        {
+            SetDust(false);
+            if (moveSource != null) moveSource.Stop();
+            if (animator != null) animator.speed = 0f;
+        }
+        else if (isMoving && animator != null)
+        {
+            animator.speed = 1f;
+        }
+    }
+
+    public void PlayDeath()
+    {
+        SetDust(false);
+        if (moveSource != null) moveSource.Stop();
+        animator.speed = 1f;
+        animator.Play("Dead", 0, 0f);
+        if (deathEffect != null)
+        {
+            deathEffect.transform.position = transform.position;
+            deathEffect.Play();
+        }
+        GameManager.Instance.PlaySfx(audioLibrary.death);
     }
 
     public void ResetToStart()
