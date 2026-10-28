@@ -7,17 +7,16 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.Tilemaps;
+using static BuilderUtils;
 
 // PacStudent > Build Level1 Scene creates the animation clips, Animator Controllers, pellet prefabs and the
 // Level1 scene (full level layout from LevelGenerator, PacStudent, the sharks and the background music).
 // Re-running it rebuilds Level1 from scratch. PacStudent > Assign Audio Clips only re-links the audio.
 public static class Level1SceneBuilder
 {
-    const string SpritesDir = "Assets/Sprites";
     const string TilesDir = "Assets/Tiles";
     const string AnimDir = "Assets/Animation";
     const string PrefabDir = "Assets/Prefabs";
-    const string AudioDir = "Assets/Audio Clips";
     const string ScenePath = "Assets/Scenes/Level1.unity";
 
     // Ghost 1..4
@@ -41,7 +40,7 @@ public static class Level1SceneBuilder
         BuildScene(pacController, ghostControllers, pelletPrefab, powerPrefab);
         AssignAudioClips();
 
-        EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
+        SetBuildScenes();
         AssetDatabase.SaveAssets();
 
         string report = "Level1 scene built.";
@@ -384,20 +383,6 @@ public static class Level1SceneBuilder
 
     // ---------------------------------------------------------------- Helpers
 
-    static Sprite LoadSprite(string path) => AssetDatabase.LoadAssetAtPath<Sprite>(path);
-
-    static Sprite[] LoadFrames(string prefix)
-    {
-        List<Sprite> frames = new List<Sprite>();
-        for (int i = 1; i < 20; i++)
-        {
-            Sprite sprite = LoadSprite($"{prefix}{i:00}.png");
-            if (sprite == null) break;
-            frames.Add(sprite);
-        }
-        return frames.ToArray();
-    }
-
     static Sprite[] FirstFound(params string[] prefixes)
     {
         foreach (string prefix in prefixes)
@@ -409,12 +394,4 @@ public static class Level1SceneBuilder
     }
 
     static TileBase LoadTile(string name) => AssetDatabase.LoadAssetAtPath<TileBase>($"{TilesDir}/{name}.asset");
-
-    static void EnsureFolder(string path)
-    {
-        if (AssetDatabase.IsValidFolder(path)) return;
-        string parent = Path.GetDirectoryName(path).Replace('\\', '/');
-        EnsureFolder(parent);
-        AssetDatabase.CreateFolder(parent, Path.GetFileName(path));
-    }
 }
