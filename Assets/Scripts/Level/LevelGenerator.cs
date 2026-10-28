@@ -68,6 +68,22 @@ public class LevelGenerator : MonoBehaviour
     public static Vector2Int WorldToCell(Vector3 position) =>
         new Vector2Int(Mathf.RoundToInt(position.x + (Cols - 1) / 2f), Mathf.RoundToInt((Rows - 1) / 2f - position.y));
 
+    public static readonly Vector2Int[] Directions = { Up, Left, Down, Right };
+
+    // The spawn box and its two gaps (the ghost exit walls)
+    public static bool IsInSpawn(Vector2Int cell) => SpawnArea.Contains(cell) || TileAt(cell) == 8;
+
+    // Ghosts walk the same corridors as PacStudent. The exit walls only let ghosts out of the spawn box
+    // (or dead ghosts back in), and the tunnel ends count as walls so ghosts cannot teleport.
+    public static bool IsGhostWalkable(Vector2Int from, Vector2Int to)
+    {
+        int tile = TileAt(to);
+        if (tile == 8) return IsInSpawn(from);
+        if (to.x <= 0 || to.x >= Cols - 1) return false;
+        if (SpawnArea.Contains(to) && !IsInSpawn(from)) return false;
+        return tile == 0 || tile == 5 || tile == 6;
+    }
+
     // ---------- Wall rotation (used by the editor builder to lay out the level) ----------
 
     // Ordered so that rotating a piece +90 degrees maps each direction to the next one

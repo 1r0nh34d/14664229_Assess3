@@ -168,8 +168,9 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    // After its 3 second dead timer a shark rejoins in the current mode (Normal once the scared timer has run out)
-    public void GhostRevived(GhostController ghost)
+    // A dead shark back at its spawn position rejoins in the current global mode; the music changes back
+    // once no other shark is dead
+    public void GhostReachedHome(GhostController ghost)
     {
         ghost.SetState((GhostState)Mode);
         UpdateMusic();
