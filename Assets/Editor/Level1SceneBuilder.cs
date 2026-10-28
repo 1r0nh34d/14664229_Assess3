@@ -36,10 +36,12 @@ public static class Level1SceneBuilder
         RuntimeAnimatorController pacController = BuildPacStudentAnimator();
         RuntimeAnimatorController[] ghostControllers = SharkNames.Select(BuildGhostAnimator).ToArray();
         RuntimeAnimatorController powerController = BuildPowerPelletAnimator();
-        GameObject pelletPrefab = BuildPelletPrefab("Pellet", LoadSprite(SpritesDir + "/Items/Pellet.png"), null);
-        GameObject powerPrefab = BuildPelletPrefab("PowerPellet", LoadSprite(SpritesDir + "/Items/PowerPellet_01.png"), powerController);
+        GameObject pelletPrefab = BuildPelletPrefab("Pellet", LoadSprite(SpritesDir + "/Items/Pellet.png"), false, null);
+        GameObject powerPrefab = BuildPelletPrefab("PowerPellet", LoadSprite(SpritesDir + "/Items/PowerPellet_01.png"), true, powerController);
+        GameObject cherryPrefab = BuildCherryPrefab();
+        GameAudio audioLibrary = RefreshAudioLibrary();
 
-        BuildScene(pacController, ghostControllers, pelletPrefab, powerPrefab);
+        BuildScene(pacController, ghostControllers, pelletPrefab, powerPrefab, cherryPrefab, audioLibrary);
         AssignAudioClips();
 
         SetBuildScenes();
@@ -267,22 +269,86 @@ public static class Level1SceneBuilder
 
     // ---------------------------------------------------------------- Prefabs
 
-    static GameObject BuildPelletPrefab(string name, Sprite sprite, RuntimeAnimatorController controller)
+    static GameObject BuildPelletPrefab(string name, Sprite sprite, bool power, RuntimeAnimatorController controller)
     {
         GameObject go = new GameObject(name);
         SpriteRenderer renderer = go.AddComponent<SpriteRenderer>();
         renderer.sprite = sprite;
         renderer.sortingOrder = 1;
+        go.AddComponent<Pellet>().isPowerPellet = power;
         if (controller != null) go.AddComponent<Animator>().runtimeAnimatorController = controller;
+        return SavePrefab(go, name);
+    }
+
+    // Drawn over everything else in the level, but only visible inside the level mask
+    static GameObject BuildCherryPrefab()
+    {
+        GameObject go = new GameObject("BonusCherry");
+        SpriteRenderer renderer = go.AddComponent<SpriteRenderer>();
+        renderer.sprite = LoadSprite(SpritesDir + "/Items/Cherry.png");
+        if (renderer.sprite == null) warnings.Add("No bonus cherry sprite (add Assets/Sprites/Items/Cherry.png and rebuild)");
+        renderer.sortingOrder = 50;
+        renderer.maskInteraction = SpriteMaskInteraction.VisibleInsideMask;
+        go.AddComponent<Cherry>();
+        return SavePrefab(go, "BonusCherry");
+    }
+
+    static GameObject SavePrefab(GameObject go, string name)
+    {
         GameObject prefab = PrefabUtility.SaveAsPrefabAsset(go, $"{PrefabDir}/{name}.prefab");
         Object.DestroyImmediate(go);
         return prefab;
     }
 
+    static ParticleSystem CreateParticles(string name, Transform parent, Color colourA, Color colourB,
+        float size, float lifetime, float speed, float rate, int burst, bool loop, float gravity, int sortingOrder)
+    {
+        GameObject go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        ParticleSystem particles = go.AddComponent<ParticleSystem>();
+        particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+
+        ParticleSystem.MainModule main = particles.main;
+        main.loop = loop;
+        main.playOnAwake = false;
+        main.duration = loop ? 1f : 0.5f;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(lifetime * 0.6f, lifetime);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(speed * 0.4f, speed);
+        main.startSize = new ParticleSystem.MinMaxCurve(size * 0.5f, size);
+        main.startColor = new ParticleSystem.MinMaxGradient(colourA, colourB);
+        main.gravityModifier = gravity;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.maxParticles = 200;
+
+        ParticleSystem.EmissionModule emission = particles.emission;
+        emission.rateOverTime = rate;
+        if (burst > 0) emission.SetBursts(new[] { new ParticleSystem.Burst(0f, (short)burst) });
+
+        ParticleSystem.ShapeModule shape = particles.shape;
+        shape.shapeType = ParticleSystemShapeType.Circle;
+        shape.radius = 0.25f;
+
+        // Fade out and shrink over each particle's life
+        ParticleSystem.ColorOverLifetimeModule colour = particles.colorOverLifetime;
+        colour.enabled = true;
+        Gradient fade = new Gradient();
+        fade.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+            new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(0f, 1f) });
+        colour.color = fade;
+        ParticleSystem.SizeOverLifetimeModule sizeOverLifetime = particles.sizeOverLifetime;
+        sizeOverLifetime.enabled = true;
+        sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 1f, 1f, 0.3f));
+
+        ParticleSystemRenderer renderer = go.GetComponent<ParticleSystemRenderer>();
+        renderer.sharedMaterial = AssetDatabase.GetBuiltinExtraResource<Material>("Default-ParticleSystem.mat");
+        renderer.sortingOrder = sortingOrder;
+        return particles;
+    }
+
     // ---------------------------------------------------------------- Scene
 
     static void BuildScene(RuntimeAnimatorController pacController, RuntimeAnimatorController[] ghostControllers,
-        GameObject pelletPrefab, GameObject powerPrefab)
+        GameObject pelletPrefab, GameObject powerPrefab, GameObject cherryPrefab, GameAudio audioLibrary)
     {
         Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
@@ -347,7 +413,19 @@ public static class Level1SceneBuilder
         GameObject characters = new GameObject("Characters");
         GameObject pac = SpriteObject(characters.transform, "PacStudent", LoadSprite(SpritesDir + "/PacStudent/PacStudent_Right_01.png"), 5);
         pac.transform.position = LevelGenerator.CellToWorld(new Vector2Int(1, 1));
-        pac.AddComponent<Animator>().runtimeAnimatorController = pacController;
+        Animator pacAnimator = pac.AddComponent<Animator>();
+        pacAnimator.runtimeAnimatorController = pacController;
+        PacStudentController pacStudent = pac.AddComponent<PacStudentController>();
+        pacStudent.startCell = new Vector2Int(1, 1);
+        pacStudent.animator = pacAnimator;
+        pacStudent.audioLibrary = audioLibrary;
+        pacStudent.moveSource = AddAudioSource(pac, 0.7f);
+        // Sand kicked up behind PacStudent while swimming along the sea floor
+        pacStudent.dust = CreateParticles("SandDust", pac.transform, new Color(0.85f, 0.72f, 0.45f), new Color(0.6f, 0.48f, 0.3f),
+            0.35f, 0.6f, 0.6f, 25f, 0, true, -0.05f, 3);
+        pacStudent.dust.transform.localPosition = new Vector3(0f, -0.35f, 0f);
+        ParticleSystem.EmissionModule dustEmission = pacStudent.dust.emission;
+        dustEmission.enabled = false;
 
         GameObject ghosts = Child(characters.transform, "Ghosts");
         for (int i = 0; i < SharkNames.Length; i++)
@@ -358,6 +436,13 @@ public static class Level1SceneBuilder
             ghost.AddComponent<Animator>().runtimeAnimatorController = ghostControllers[i];
             CreateGhostLabel(ghost.transform, i + 1);
         }
+
+        // ---- Bonus cherry: spawned by CherryController, only visible inside the level
+        GameObject mask = new GameObject("LevelMask");
+        mask.AddComponent<SpriteMask>().sprite = LoadSprite(SpritesDir + "/Level/Tile_OutsideWall.png");
+        mask.transform.localScale = new Vector3(LevelGenerator.Cols, LevelGenerator.Rows, 1f);
+        CherryController cherry = new GameObject("CherryController").AddComponent<CherryController>();
+        cherry.cherryPrefab = cherryPrefab;
 
         BuildHud("Level 1");
         CreateEventSystem();
