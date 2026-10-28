@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d94973e932a851448805766ba9e308c3, type: 3}
+  m_Name: GameAudio
+  m_EditorClassIdentifier: Assembly-CSharp::GameAudio
+  startMusic: {fileID: 8300000, guid: 380e6a73049d3714480584c6c6c5d80d, type: 3}
+  introMusic: {fileID: 8300000, guid: 27c5c73db3a823d48bebf1a8182d170a, type: 3}
+  normalMusic: {fileID: 8300000, guid: 8879de68da8d65843b34d793cf02931e, type: 3}
+  scaredMusic: {fileID: 8300000, guid: 1c0aa96e7ba1a954e877841028a057b6, type: 3}
+  ghostDeadMusic: {fileID: 8300000, guid: 1bff821bf44ecc64fbee472bae335d31, type: 3}
+  move: {fileID: 8300000, guid: 21dfe57326db88941ababa26524db371, type: 3}
+  moveEat: {fileID: 8300000, guid: 32149265f8b988f49bf3e76bc22005eb, type: 3}
+  wallBump: {fileID: 8300000, guid: c835b6913fff2cc4db8782b1d55854ca, type: 3}
+  death: {fileID: 8300000, guid: 37cc50657769867418047bc255ff314c, type: 3}
+  ghostEat: {fileID: 8300000, guid: 729872c332143c148b05b6066cb1030c, type: 3}
+  cherryEat: {fileID: 8300000, guid: 1567533077ec8d746ac3eee0982edc79, type: 3}
+  buttonHover: {fileID: 8300000, guid: 32149265f8b988f49bf3e76bc22005eb, type: 3}
+  buttonClick: {fileID: 8300000, guid: 2f9297489dba24f49a54bc9a51e0b905, type: 3}

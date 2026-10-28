@@ -3,21 +3,22 @@ using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.Animations;
+using UnityEditor.Events;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.Tilemaps;
+using UnityEngine.UI;
+using static BuilderUtils;
 
 // PacStudent > Build Level1 Scene creates the animation clips, Animator Controllers, pellet prefabs and the
-// Level1 scene (full level layout, characters, an example of every sprite and the background music).
-// Re-running it rebuilds Level1 from scratch. PacStudent > Assign Audio Clips only re-links the audio.
+// Level1 scene (full level layout from LevelGenerator, PacStudent, the sharks, the HUD and the GameManager).
+// Re-running it rebuilds Level1 from scratch. PacStudent > Refresh Audio Library only re-links the audio clips.
 public static class Level1SceneBuilder
 {
-    const string SpritesDir = "Assets/Sprites";
     const string TilesDir = "Assets/Tiles";
     const string AnimDir = "Assets/Animation";
     const string PrefabDir = "Assets/Prefabs";
-    const string AudioDir = "Assets/Audio Clips";
     const string ScenePath = "Assets/Scenes/Level1.unity";
 
     // Ghost 1..4
@@ -35,13 +36,14 @@ public static class Level1SceneBuilder
         RuntimeAnimatorController pacController = BuildPacStudentAnimator();
         RuntimeAnimatorController[] ghostControllers = SharkNames.Select(BuildGhostAnimator).ToArray();
         RuntimeAnimatorController powerController = BuildPowerPelletAnimator();
-        GameObject pelletPrefab = BuildPelletPrefab("Pellet", LoadSprite(SpritesDir + "/Items/Pellet.png"), null);
-        GameObject powerPrefab = BuildPelletPrefab("PowerPellet", LoadSprite(SpritesDir + "/Items/PowerPellet_01.png"), powerController);
+        GameObject pelletPrefab = BuildPelletPrefab("Pellet", LoadSprite(SpritesDir + "/Items/Pellet.png"), false, null);
+        GameObject powerPrefab = BuildPelletPrefab("PowerPellet", LoadSprite(SpritesDir + "/Items/PowerPellet_01.png"), true, powerController);
+        GameObject cherryPrefab = BuildCherryPrefab();
+        GameAudio audioLibrary = RefreshAudioLibrary();
 
-        BuildScene(pacController, ghostControllers, pelletPrefab, powerPrefab);
-        AssignAudioClips();
+        BuildScene(pacController, ghostControllers, pelletPrefab, powerPrefab, cherryPrefab, audioLibrary);
 
-        EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
+        SetBuildScenes();
         AssetDatabase.SaveAssets();
 
         string report = "Level1 scene built.";
@@ -49,39 +51,10 @@ public static class Level1SceneBuilder
         Debug.Log(report);
     }
 
-    // ---------------------------------------------------------------- Audio
-
-    [MenuItem("PacStudent/Assign Audio Clips")]
-    public static void AssignAudioClips()
-    {
-        Scene scene = SceneManager.GetActiveScene();
-        if (scene.path != ScenePath) scene = EditorSceneManager.OpenScene(ScenePath);
-
-        List<AudioClip> clips = AssetDatabase.FindAssets("t:AudioClip", new[] { AudioDir })
-            .Select(guid => AssetDatabase.LoadAssetAtPath<AudioClip>(AssetDatabase.GUIDToAssetPath(guid)))
-            .ToList();
-        AudioClip Find(string clipName)
-        {
-            AudioClip clip = clips.FirstOrDefault(c => string.Equals(c.name, clipName, System.StringComparison.OrdinalIgnoreCase));
-            if (clip == null) Debug.LogWarning($"Audio clip '{clipName}' missing from {AudioDir}");
-            return clip;
-        }
-
-        BackgroundMusicController music = Object.FindAnyObjectByType<BackgroundMusicController>();
-        music.introMusic = Find("Music_Intro");
-        music.normalMusic = Find("Music_GhostNormal");
-        // Not played by the A3 scene, but they must be in the Audio Clips folder
-        foreach (string other in new[] { "Music_StartScene", "Music_GhostScared", "Music_GhostDead", "SFX_Move", "SFX_EatPellet",
-                     "SFX_EatGhost", "SFX_EatCherry", "SFX_WallCollision", "SFX_Death" })
-            Find(other);
-
-        EditorUtility.SetDirty(music);
-        EditorSceneManager.SaveScene(scene);
-    }
-
     // ---------------------------------------------------------------- Animation
 
-    // Every Animator cycles through all of its states so each one can be previewed in Play mode
+    // The A3 "...Animator" controllers cycle through all of their states so each one can be previewed. They are kept in
+    // the project, but the scene uses a copy without the cycle transitions so the game scripts choose the state.
     static RuntimeAnimatorController BuildPacStudentAnimator()
     {
         string dir = AnimDir + "/PacStudent/";
@@ -90,7 +63,8 @@ public static class Level1SceneBuilder
         foreach (string direction in Directions)
             states.Add(("Walk_" + direction, CreateClip($"{dir}PacStudent_Walk_{direction}.anim", LoadFrames(sprites + direction + "_"), 10f, true)));
         states.Add(("Dead", CreateClip(dir + "PacStudent_Dead.anim", LoadFrames(sprites + "Dead_"), 3f, false)));
-        return CreateCyclingController(dir + "PacStudentAnimator.controller", states);
+        CreateCyclingController(dir + "PacStudentAnimator.controller", states);
+        return CreateController(dir + "PacStudent.controller", states);
     }
 
     static RuntimeAnimatorController BuildGhostAnimator(string shark)
@@ -127,14 +101,14 @@ public static class Level1SceneBuilder
             ? CreateClip($"{dir}{shark}_Dead.anim", dead, 6f, true)
             : CreateClip($"{dir}{shark}_Dead.anim", LoadFrames(sprites + "Left_"), 4f, true, deadGhost, deadGhost, 1)));
 
-        return CreateCyclingController($"{AnimDir}/Ghosts/GhostAnimator_{shark}.controller", states);
+        CreateCyclingController($"{AnimDir}/Ghosts/GhostAnimator_{shark}.controller", states);
+        return CreateController($"{AnimDir}/Ghosts/Ghost_{shark}.controller", states);
     }
 
     static RuntimeAnimatorController BuildPowerPelletAnimator()
     {
         string path = AnimDir + "/Pellets/PowerPellet_Flash.anim";
-        AssetDatabase.DeleteAsset(path);
-        AnimationClip clip = new AnimationClip { frameRate = 30f };
+        AnimationClip clip = ReuseClip(path, 30f);
 
         Sprite[] frames = LoadFrames(SpritesDir + "/Items/PowerPellet_");
         if (frames.Length > 1) SetSpriteCurve(clip, frames, frames.Length / 0.6f);
@@ -147,7 +121,7 @@ public static class Level1SceneBuilder
         AnimationCurve alpha = new AnimationCurve(new Keyframe(0f, 1f), new Keyframe(0.3f, 0.3f), new Keyframe(0.6f, 1f));
         AnimationUtility.SetEditorCurve(clip, EditorCurveBinding.FloatCurve("", typeof(SpriteRenderer), "m_Color.a"), alpha);
         SetLooping(clip, true);
-        AssetDatabase.CreateAsset(clip, path);
+        EditorUtility.SetDirty(clip);
 
         return CreateCyclingController(AnimDir + "/Pellets/PowerPelletAnimator.controller",
             new List<(string, AnimationClip)> { ("Flash", clip) });
@@ -156,8 +130,7 @@ public static class Level1SceneBuilder
     static AnimationClip CreateClip(string path, Sprite[] frames, float fps, bool loop,
         Color? colourA = null, Color? colourB = null, int colourSteps = 1)
     {
-        AssetDatabase.DeleteAsset(path);
-        AnimationClip clip = new AnimationClip { frameRate = fps };
+        AnimationClip clip = ReuseClip(path, fps);
         if (frames.Length == 0) warnings.Add($"No sprites found for {Path.GetFileNameWithoutExtension(path)}");
         else SetSpriteCurve(clip, frames, fps);
 
@@ -183,7 +156,26 @@ public static class Level1SceneBuilder
         }
 
         SetLooping(clip, loop);
-        AssetDatabase.CreateAsset(clip, path);
+        EditorUtility.SetDirty(clip);
+        return clip;
+    }
+
+    // Rebuilds overwrite the existing asset in place so its GUID (and every reference to it) stays the same
+    static AnimationClip ReuseClip(string path, float fps)
+    {
+        AnimationClip clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(path);
+        if (clip == null)
+        {
+            clip = new AnimationClip();
+            AssetDatabase.CreateAsset(clip, path);
+        }
+        else
+        {
+            clip.ClearCurves();
+            foreach (EditorCurveBinding binding in AnimationUtility.GetObjectReferenceCurveBindings(clip))
+                AnimationUtility.SetObjectReferenceCurve(clip, binding, null);
+        }
+        clip.frameRate = fps;
         return clip;
     }
 
@@ -207,27 +199,17 @@ public static class Level1SceneBuilder
     // Looping clips leave after 3 loops or 2 seconds (whichever is longer); non-looping clips after one play (exit time 1).
     static AnimatorController CreateCyclingController(string path, List<(string name, AnimationClip clip)> states)
     {
-        AssetDatabase.DeleteAsset(path);
-        AnimatorController controller = AnimatorController.CreateAnimatorControllerAtPath(path);
-        AnimatorStateMachine machine = controller.layers[0].stateMachine;
+        AnimatorController controller = CreateController(path, states);
+        AnimatorState[] created = controller.layers[0].stateMachine.states.Select(s => s.state).ToArray();
 
-        List<AnimatorState> created = new List<AnimatorState>();
-        for (int i = 0; i < states.Count; i++)
+        if (created.Length > 1)
         {
-            AnimatorState state = machine.AddState(states[i].name, new Vector3(300f, i * 70f, 0f));
-            state.motion = states[i].clip;
-            created.Add(state);
-        }
-        machine.defaultState = created[0];
-
-        if (created.Count > 1)
-        {
-            for (int i = 0; i < created.Count; i++)
+            for (int i = 0; i < created.Length; i++)
             {
                 AnimationClip clip = states[i].clip;
                 bool loops = AnimationUtility.GetAnimationClipSettings(clip).loopTime;
                 float length = Mathf.Max(clip.length, 0.01f);
-                AnimatorStateTransition transition = created[i].AddTransition(created[(i + 1) % created.Count]);
+                AnimatorStateTransition transition = created[i].AddTransition(created[(i + 1) % created.Length]);
                 transition.hasExitTime = true;
                 transition.exitTime = loops ? Mathf.Max(3f, 2f / length) : 1f;
                 transition.hasFixedDuration = true;
@@ -237,47 +219,145 @@ public static class Level1SceneBuilder
         return controller;
     }
 
+    // States only, no transitions: the first state plays by default and scripts switch with Animator.Play
+    static AnimatorController CreateController(string path, List<(string name, AnimationClip clip)> states)
+    {
+        AnimatorController controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(path);
+        if (controller == null) controller = AnimatorController.CreateAnimatorControllerAtPath(path);
+        AnimatorStateMachine machine = controller.layers[0].stateMachine;
+        foreach (ChildAnimatorState old in machine.states) machine.RemoveState(old.state);
+        for (int i = 0; i < states.Count; i++)
+        {
+            AnimatorState state = machine.AddState(states[i].name, new Vector3(300f, i * 70f, 0f));
+            state.motion = states[i].clip;
+        }
+        machine.defaultState = machine.states[0].state;
+        EditorUtility.SetDirty(controller);
+        return controller;
+    }
+
     // ---------------------------------------------------------------- Prefabs
 
-    static GameObject BuildPelletPrefab(string name, Sprite sprite, RuntimeAnimatorController controller)
+    static GameObject BuildPelletPrefab(string name, Sprite sprite, bool power, RuntimeAnimatorController controller)
     {
         GameObject go = new GameObject(name);
         SpriteRenderer renderer = go.AddComponent<SpriteRenderer>();
         renderer.sprite = sprite;
         renderer.sortingOrder = 1;
+        go.AddComponent<Pellet>().isPowerPellet = power;
+        AddTrigger(go, power ? 0.3f : 0.15f);
         if (controller != null) go.AddComponent<Animator>().runtimeAnimatorController = controller;
+        return SavePrefab(go, name);
+    }
+
+    // Drawn over everything else in the level, but only visible inside the level mask
+    static GameObject BuildCherryPrefab()
+    {
+        GameObject go = new GameObject("BonusCherry");
+        SpriteRenderer renderer = go.AddComponent<SpriteRenderer>();
+        renderer.sprite = LoadSprite(SpritesDir + "/Items/Cherry.png");
+        if (renderer.sprite == null) warnings.Add("No bonus cherry sprite (add Assets/Sprites/Items/Cherry.png and rebuild)");
+        renderer.sortingOrder = 50;
+        renderer.maskInteraction = SpriteMaskInteraction.VisibleInsideMask;
+        go.AddComponent<Cherry>();
+        AddTrigger(go, 0.4f);
+        return SavePrefab(go, "BonusCherry");
+    }
+
+    static CircleCollider2D AddTrigger(GameObject go, float radius)
+    {
+        CircleCollider2D collider = go.AddComponent<CircleCollider2D>();
+        collider.isTrigger = true;
+        collider.radius = radius;
+        return collider;
+    }
+
+    // Only used so trigger messages are sent; Kinematic, so it never moves anything or responds to collisions
+    static void AddKinematicBody(GameObject go, float radius)
+    {
+        Rigidbody2D body = go.AddComponent<Rigidbody2D>();
+        body.bodyType = RigidbodyType2D.Kinematic;
+        body.sleepMode = RigidbodySleepMode2D.NeverSleep;
+        AddTrigger(go, radius);
+    }
+
+    static GameObject SavePrefab(GameObject go, string name)
+    {
         GameObject prefab = PrefabUtility.SaveAsPrefabAsset(go, $"{PrefabDir}/{name}.prefab");
         Object.DestroyImmediate(go);
         return prefab;
     }
 
+    static ParticleSystem CreateParticles(string name, Transform parent, Color colourA, Color colourB,
+        float size, float lifetime, float speed, float rate, int burst, bool loop, float gravity, int sortingOrder)
+    {
+        GameObject go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        ParticleSystem particles = go.AddComponent<ParticleSystem>();
+        particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+
+        ParticleSystem.MainModule main = particles.main;
+        main.loop = loop;
+        main.playOnAwake = false;
+        main.duration = loop ? 1f : 0.5f;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(lifetime * 0.6f, lifetime);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(speed * 0.4f, speed);
+        main.startSize = new ParticleSystem.MinMaxCurve(size * 0.5f, size);
+        main.startColor = new ParticleSystem.MinMaxGradient(colourA, colourB);
+        main.gravityModifier = gravity;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.maxParticles = 200;
+
+        ParticleSystem.EmissionModule emission = particles.emission;
+        emission.rateOverTime = rate;
+        if (burst > 0) emission.SetBursts(new[] { new ParticleSystem.Burst(0f, (short)burst) });
+
+        ParticleSystem.ShapeModule shape = particles.shape;
+        shape.shapeType = ParticleSystemShapeType.Circle;
+        shape.radius = 0.25f;
+
+        // Fade out and shrink over each particle's life
+        ParticleSystem.ColorOverLifetimeModule colour = particles.colorOverLifetime;
+        colour.enabled = true;
+        Gradient fade = new Gradient();
+        fade.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+            new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(0f, 1f) });
+        colour.color = fade;
+        ParticleSystem.SizeOverLifetimeModule sizeOverLifetime = particles.sizeOverLifetime;
+        sizeOverLifetime.enabled = true;
+        sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 1f, 1f, 0.3f));
+
+        ParticleSystemRenderer renderer = go.GetComponent<ParticleSystemRenderer>();
+        renderer.sharedMaterial = AssetDatabase.GetBuiltinExtraResource<Material>("Default-ParticleSystem.mat");
+        renderer.sortingOrder = sortingOrder;
+        return particles;
+    }
+
     // ---------------------------------------------------------------- Scene
 
     static void BuildScene(RuntimeAnimatorController pacController, RuntimeAnimatorController[] ghostControllers,
-        GameObject pelletPrefab, GameObject powerPrefab)
+        GameObject pelletPrefab, GameObject powerPrefab, GameObject cherryPrefab, GameAudio audioLibrary)
     {
         Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
-        GameObject cameraObject = new GameObject("Main Camera") { tag = "MainCamera" };
-        Camera camera = cameraObject.AddComponent<Camera>();
-        cameraObject.AddComponent<AudioListener>();
-        camera.orthographic = true;
-        camera.orthographicSize = LevelLayout.Rows / 2f + 1f; // whole level plus a small border
-        camera.transform.position = new Vector3(0f, 0f, -10f);
-        camera.clearFlags = CameraClearFlags.SolidColor;
-        camera.backgroundColor = new Color(0.02f, 0.07f, 0.16f);
+        // Whole level plus a strip top and bottom for the HUD; fits 16:9 and 4:3
+        CreateCamera(LevelGenerator.Rows / 2f + 3f);
 
-        GameObject audioObject = new GameObject("BackgroundMusic");
-        AudioSource source = audioObject.AddComponent<AudioSource>();
-        source.playOnAwake = false;
-        source.volume = 0.6f;
-        audioObject.AddComponent<BackgroundMusicController>();
+        // Countdown, score, lives, timers, ghost states and music (intro during the countdown, then the state music)
+        GameObject managerObject = new GameObject("GameManager");
+        GameManager game = managerObject.AddComponent<GameManager>();
+        game.levelKey = "Level1";
+        game.levelName = "Level 1";
+        game.audioLibrary = audioLibrary;
+        game.musicSource = AddAudioSource(managerObject, 0.6f);
+        game.sfxSource = AddAudioSource(managerObject, 1f);
 
         // ---- Level: Grid > Walls tilemap, Pellets, PowerPellets
         GameObject level = new GameObject("Level");
         level.AddComponent<Grid>();
-        // Grid origin chosen so cell (col, -row) is centred on LevelLayout.CellToWorld(col, row)
-        level.transform.position = new Vector3(-LevelLayout.Cols / 2f, (LevelLayout.Rows - 1) / 2f - 0.5f, 0f);
+        level.AddComponent<LevelGenerator>();
+        // Grid origin chosen so cell (col, -row) is centred on LevelGenerator.CellToWorld(col, row)
+        level.transform.position = new Vector3(-LevelGenerator.Cols / 2f, (LevelGenerator.Rows - 1) / 2f - 0.5f, 0f);
 
         GameObject wallsObject = new GameObject("Walls");
         wallsObject.transform.SetParent(level.transform, false);
@@ -296,25 +376,25 @@ public static class Level1SceneBuilder
             { 8, LoadTile("Tile_SharkCage") },
         };
 
-        for (int row = 0; row < LevelLayout.Rows; row++)
+        for (int row = 0; row < LevelGenerator.Rows; row++)
         {
-            for (int col = 0; col < LevelLayout.Cols; col++)
+            for (int col = 0; col < LevelGenerator.Cols; col++)
             {
                 Vector2Int cell = new Vector2Int(col, row);
-                int tile = LevelLayout.TileAt(cell);
+                int tile = LevelGenerator.TileAt(cell);
                 if (tiles.TryGetValue(tile, out TileBase tileAsset))
                 {
                     Vector3Int position = new Vector3Int(col, -row, 0);
                     walls.SetTile(position, tileAsset);
                     walls.SetTileFlags(position, TileFlags.None);
-                    walls.SetTransformMatrix(position, Matrix4x4.Rotate(Quaternion.Euler(0f, 0f, LevelLayout.GetWallRotation(cell))));
+                    walls.SetTransformMatrix(position, Matrix4x4.Rotate(Quaternion.Euler(0f, 0f, LevelGenerator.GetWallRotation(cell))));
                 }
                 else if (tile == 5 || tile == 6)
                 {
                     GameObject prefab = tile == 6 ? powerPrefab : pelletPrefab;
                     Transform parent = tile == 6 ? powerPellets.transform : pellets.transform;
                     GameObject pellet = (GameObject)PrefabUtility.InstantiatePrefab(prefab, parent);
-                    pellet.transform.position = LevelLayout.CellToWorld(cell);
+                    pellet.transform.position = LevelGenerator.CellToWorld(cell);
                     pellet.name = $"{prefab.name}_{col}_{row}";
                 }
             }
@@ -323,40 +403,129 @@ public static class Level1SceneBuilder
         // ---- Characters: PacStudent top-left, sharks in a line inside the cage
         GameObject characters = new GameObject("Characters");
         GameObject pac = SpriteObject(characters.transform, "PacStudent", LoadSprite(SpritesDir + "/PacStudent/PacStudent_Right_01.png"), 5);
-        pac.transform.position = LevelLayout.CellToWorld(new Vector2Int(1, 1));
-        pac.AddComponent<Animator>().runtimeAnimatorController = pacController;
+        pac.transform.position = LevelGenerator.CellToWorld(new Vector2Int(1, 1));
+        Animator pacAnimator = pac.AddComponent<Animator>();
+        pacAnimator.runtimeAnimatorController = pacController;
+        PacStudentController pacStudent = pac.AddComponent<PacStudentController>();
+        pacStudent.startCell = new Vector2Int(1, 1);
+        pacStudent.animator = pacAnimator;
+        pacStudent.audioLibrary = audioLibrary;
+        pacStudent.moveSource = AddAudioSource(pac, 0.7f);
+        // Sand kicked up behind PacStudent while swimming along the sea floor
+        pacStudent.dust = CreateParticles("SandDust", pac.transform, new Color(0.85f, 0.72f, 0.45f), new Color(0.6f, 0.48f, 0.3f),
+            0.35f, 0.6f, 0.6f, 25f, 0, true, -0.05f, 3);
+        pacStudent.dust.transform.localPosition = new Vector3(0f, -0.35f, 0f);
+        ParticleSystem.EmissionModule dustEmission = pacStudent.dust.emission;
+        dustEmission.enabled = false;
+        pacStudent.wallBump = CreateParticles("WallBump", pac.transform, Color.white, Aqua, 0.3f, 0.35f, 3f, 0f, 14, false, 0f, 6);
+        pacStudent.deathEffect = CreateParticles("DeathBubbles", pac.transform, Aqua, new Color(0.9f, 1f, 1f), 0.6f, 1.4f, 2.5f, 0f, 45, false, -0.4f, 7);
+        AddKinematicBody(pac, 0.35f);
+        game.pacStudent = pacStudent;
 
         GameObject ghosts = Child(characters.transform, "Ghosts");
+        game.ghosts = new GhostController[SharkNames.Length];
         for (int i = 0; i < SharkNames.Length; i++)
         {
             GameObject ghost = SpriteObject(ghosts.transform, $"Ghost{i + 1}_{SharkNames[i]}",
                 LoadSprite($"{SpritesDir}/Ghosts/Shark_{SharkNames[i]}_Right_01.png"), 4);
-            ghost.transform.position = LevelLayout.CellToWorld(new Vector2Int(12 + i, 14));
-            ghost.AddComponent<Animator>().runtimeAnimatorController = ghostControllers[i];
+            Vector2Int start = new Vector2Int(12 + i, 14);
+            ghost.transform.position = LevelGenerator.CellToWorld(start);
+            Animator animator = ghost.AddComponent<Animator>();
+            animator.runtimeAnimatorController = ghostControllers[i];
+            AddKinematicBody(ghost, 0.35f);
+            GhostController controller = ghost.AddComponent<GhostController>();
+            controller.ghostNumber = i + 1;
+            controller.startCell = start;
+            controller.animator = animator;
+            game.ghosts[i] = controller;
+            CreateGhostLabel(ghost.transform, i + 1);
         }
 
-        // ---- Items that are not part of the level layout, shown beside it
-        GameObject items = new GameObject("ItemShowcase");
-        float x = -LevelLayout.Cols / 2f - 3f;
-        Sprite cherrySprite = AssetDatabase.FindAssets("Cherry t:Sprite", new[] { SpritesDir })
-            .Select(guid => AssetDatabase.LoadAssetAtPath<Sprite>(AssetDatabase.GUIDToAssetPath(guid)))
-            .FirstOrDefault();
-        GameObject cherry = SpriteObject(items.transform, "BonusCherry", cherrySprite, 5);
-        cherry.transform.position = new Vector3(x, 2f, 0f);
-        if (cherrySprite == null)
-        {
-            warnings.Add("No bonus cherry sprite found (add Assets/Sprites/Items/Cherry.png and rebuild)");
-            cherry.GetComponent<SpriteRenderer>().sprite = LoadSprite(SpritesDir + "/Items/PowerPellet_01.png");
-            cherry.GetComponent<SpriteRenderer>().color = new Color(1f, 0.35f, 0.45f);
-        }
-        GameObject lives = Child(items.transform, "LifeIndicators");
-        for (int i = 0; i < 3; i++)
-        {
-            GameObject life = SpriteObject(lives.transform, "Life" + (i + 1), LoadSprite(SpritesDir + "/Items/LifeIcon.png"), 5);
-            life.transform.position = new Vector3(x - 1f + i, -1f, 0f);
-        }
+        // ---- Bonus cherry: spawned by CherryController, only visible inside the level
+        GameObject mask = new GameObject("LevelMask");
+        mask.AddComponent<SpriteMask>().sprite = LoadSprite(SpritesDir + "/Level/Tile_OutsideWall.png");
+        mask.transform.localScale = new Vector3(LevelGenerator.Cols, LevelGenerator.Rows, 1f);
+        CherryController cherry = new GameObject("CherryController").AddComponent<CherryController>();
+        cherry.cherryPrefab = cherryPrefab;
+        game.cherryController = cherry;
+
+        game.hud = BuildHud("Level 1");
+        CreateEventSystem();
 
         EditorSceneManager.SaveScene(scene, ScenePath);
+    }
+
+    // World space canvas with the ghost's number, shown above its head
+    static void CreateGhostLabel(Transform ghost, int number)
+    {
+        GameObject canvasObject = new GameObject($"Ghost{number}Canvas", typeof(RectTransform), typeof(Canvas));
+        canvasObject.transform.SetParent(ghost, false);
+        Canvas canvas = canvasObject.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.sortingOrder = 30;
+        RectTransform rect = (RectTransform)canvasObject.transform;
+        rect.sizeDelta = new Vector2(100f, 60f);
+        rect.localScale = Vector3.one * 0.01f;
+        rect.localPosition = new Vector3(0f, 0.85f, 0f);
+        CreateText(canvasObject.transform, "Number", number.ToString(), 52, TextAnchor.MiddleCenter, Color.white,
+            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(100f, 60f), FontStyle.Bold);
+    }
+
+    // Screen space HUD: score and timer along the top, lives, scared timer and Exit along the bottom,
+    // and the countdown / game over overlay (hidden until needed)
+    static HUDController BuildHud(string levelName)
+    {
+        GameObject hudObject = new GameObject("HUD");
+        Canvas canvas = hudObject.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        AddScaler(hudObject, 1f);
+        hudObject.AddComponent<GraphicRaycaster>();
+        HUDController hud = hudObject.AddComponent<HUDController>();
+        Transform t = hudObject.transform;
+
+        Vector2 topLeft = new Vector2(0f, 1f), topRight = new Vector2(1f, 1f), top = new Vector2(0.5f, 1f);
+        Vector2 bottomLeft = Vector2.zero, bottomRight = new Vector2(1f, 0f), bottom = new Vector2(0.5f, 0f);
+        Vector2 left = new Vector2(0f, 0.5f), right = new Vector2(1f, 0.5f), centre = new Vector2(0.5f, 0.5f);
+
+        CreateText(t, "ScoreLabel", "SCORE", 38, TextAnchor.MiddleLeft, Aqua, topLeft, left, new Vector2(30f, -46f), new Vector2(160f, 60f), FontStyle.Bold);
+        hud.scoreText = CreateText(t, "Score", "000000", 48, TextAnchor.MiddleLeft, Color.white, topLeft, left, new Vector2(185f, -46f), new Vector2(240f, 60f), FontStyle.Bold);
+        hud.levelNameText = CreateText(t, "LevelName", levelName, 50, TextAnchor.MiddleCenter, Gold, top, centre, new Vector2(0f, -46f), new Vector2(400f, 60f), FontStyle.Bold);
+        hud.timeText = CreateText(t, "GameTimer", "00:00:00", 48, TextAnchor.MiddleRight, Color.white, topRight, right, new Vector2(-30f, -46f), new Vector2(240f, 60f), FontStyle.Bold);
+        CreateText(t, "TimeLabel", "TIME", 38, TextAnchor.MiddleRight, Aqua, topRight, right, new Vector2(-280f, -46f), new Vector2(130f, 60f), FontStyle.Bold);
+
+        CreateText(t, "LivesLabel", "LIVES", 38, TextAnchor.MiddleLeft, Aqua, bottomLeft, left, new Vector2(30f, 46f), new Vector2(140f, 60f), FontStyle.Bold);
+        GameObject lives = new GameObject("Lives", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+        lives.transform.SetParent(t, false);
+        SetRect((RectTransform)lives.transform, bottomLeft, left, new Vector2(170f, 46f), new Vector2(240f, 64f));
+        HorizontalLayoutGroup layout = lives.GetComponent<HorizontalLayoutGroup>();
+        layout.spacing = 10f;
+        layout.childControlWidth = layout.childControlHeight = false;
+        layout.childForceExpandWidth = layout.childForceExpandHeight = false;
+        Sprite lifeSprite = LoadSprite(SpritesDir + "/Items/LifeIcon.png");
+        hud.lifeIcons = new Image[3];
+        for (int i = 0; i < 3; i++)
+        {
+            Image icon = CreateImage(lives.transform, "Life" + (i + 1), lifeSprite, Color.white);
+            ((RectTransform)icon.transform).sizeDelta = new Vector2(64f, 64f);
+            hud.lifeIcons[i] = icon;
+        }
+
+        hud.scaredTimerText = CreateText(t, "GhostScaredTimer", "Scared: 10", 46, TextAnchor.MiddleCenter, new Color(0.45f, 0.65f, 1f),
+            bottom, centre, new Vector2(0f, 46f), new Vector2(400f, 60f), FontStyle.Bold);
+        hud.scaredTimerText.gameObject.SetActive(false);
+
+        hud.exitButton = CreateButton(t, "ExitButton", "EXIT", bottomRight, right, new Vector2(-30f, 46f), new Vector2(180f, 66f), 40);
+        UnityEventTools.AddPersistentListener(hud.exitButton.onClick, hud.ExitToStart);
+
+        // Drawn last so it covers everything, including the Exit button
+        hud.blocker = CreateImage(t, "Blocker", null, new Color(0f, 0f, 0f, 0.65f));
+        hud.blocker.raycastTarget = true;
+        SetStretch((RectTransform)hud.blocker.transform);
+        hud.countdownText = CreateText(t, "Countdown", "3", 260, TextAnchor.MiddleCenter, Gold, centre, centre, Vector2.zero, new Vector2(900f, 400f), FontStyle.Bold);
+        hud.gameOverText = CreateText(t, "GameOver", "GAME OVER", 170, TextAnchor.MiddleCenter, new Color(1f, 0.35f, 0.35f), centre, centre, Vector2.zero, new Vector2(1400f, 300f), FontStyle.Bold);
+        foreach (Component overlay in new Component[] { hud.blocker, hud.countdownText, hud.gameOverText })
+            overlay.gameObject.SetActive(false);
+        return hud;
     }
 
     static GameObject Child(Transform parent, string name)
@@ -377,20 +546,6 @@ public static class Level1SceneBuilder
 
     // ---------------------------------------------------------------- Helpers
 
-    static Sprite LoadSprite(string path) => AssetDatabase.LoadAssetAtPath<Sprite>(path);
-
-    static Sprite[] LoadFrames(string prefix)
-    {
-        List<Sprite> frames = new List<Sprite>();
-        for (int i = 1; i < 20; i++)
-        {
-            Sprite sprite = LoadSprite($"{prefix}{i:00}.png");
-            if (sprite == null) break;
-            frames.Add(sprite);
-        }
-        return frames.ToArray();
-    }
-
     static Sprite[] FirstFound(params string[] prefixes)
     {
         foreach (string prefix in prefixes)
@@ -402,131 +557,4 @@ public static class Level1SceneBuilder
     }
 
     static TileBase LoadTile(string name) => AssetDatabase.LoadAssetAtPath<TileBase>($"{TilesDir}/{name}.asset");
-
-    static void EnsureFolder(string path)
-    {
-        if (AssetDatabase.IsValidFolder(path)) return;
-        string parent = Path.GetDirectoryName(path).Replace('\\', '/');
-        EnsureFolder(parent);
-        AssetDatabase.CreateFolder(parent, Path.GetFileName(path));
-    }
-}
-
-// The A3 levelMap mirrored into the full level, plus the neighbour checks used to rotate each wall piece.
-// Cells are Vector2Int(x = column, y = row) with row 0 at the top.
-public static class LevelLayout
-{
-    // 0 empty, 1 outside corner, 2 outside wall, 3 inside corner, 4 inside wall,
-    // 5 pellet, 6 power pellet, 7 T junction, 8 ghost exit wall
-    static readonly int[,] levelMap =
-    {
-        {1,2,2,2,2,2,2,2,2,2,2,2,2,7},
-        {2,5,5,5,5,5,5,5,5,5,5,5,5,4},
-        {2,5,3,4,4,3,5,3,4,4,4,3,5,4},
-        {2,6,4,0,0,4,5,4,0,0,0,4,5,4},
-        {2,5,3,4,4,3,5,3,4,4,4,3,5,3},
-        {2,5,5,5,5,5,5,5,5,5,5,5,5,5},
-        {2,5,3,4,4,3,5,3,3,5,3,4,4,4},
-        {2,5,3,4,4,3,5,4,4,5,3,4,4,3},
-        {2,5,5,5,5,5,5,4,4,5,5,5,5,4},
-        {1,2,2,2,2,1,5,4,3,4,4,3,0,4},
-        {0,0,0,0,0,2,5,4,3,4,4,3,0,3},
-        {0,0,0,0,0,2,5,4,4,0,0,0,0,0},
-        {0,0,0,0,0,2,5,4,4,0,3,4,4,8},
-        {2,2,2,2,2,1,5,3,3,0,4,0,0,0},
-        {0,0,0,0,0,0,5,0,0,0,4,0,0,0},
-    };
-
-    static readonly Vector2Int Up = new Vector2Int(0, -1);
-    static readonly Vector2Int Down = new Vector2Int(0, 1);
-    static readonly Vector2Int Left = new Vector2Int(-1, 0);
-    static readonly Vector2Int Right = new Vector2Int(1, 0);
-
-    // Ordered so that rotating a piece +90 degrees maps each direction to the next one
-    static readonly Vector2Int[] RotationOrder = { Left, Down, Right, Up };
-
-    static int[,] fullMap;
-
-    static int[,] FullMap => fullMap ?? (fullMap = BuildFullMap());
-    public static int Rows => FullMap.GetLength(0);
-    public static int Cols => FullMap.GetLength(1);
-
-    // Mirror horizontally, then vertically without repeating the quadrant's bottom row
-    static int[,] BuildFullMap()
-    {
-        int quadRows = levelMap.GetLength(0);
-        int quadCols = levelMap.GetLength(1);
-        int rows = quadRows * 2 - 1;
-        int cols = quadCols * 2;
-        int[,] map = new int[rows, cols];
-        for (int r = 0; r < rows; r++)
-            for (int c = 0; c < cols; c++)
-                map[r, c] = levelMap[r < quadRows ? r : rows - 1 - r, c < quadCols ? c : cols - 1 - c];
-        return map;
-    }
-
-    public static int TileAt(Vector2Int cell) =>
-        cell.x >= 0 && cell.x < Cols && cell.y >= 0 && cell.y < Rows ? FullMap[cell.y, cell.x] : -1;
-
-    public static Vector3 CellToWorld(Vector2Int cell) =>
-        new Vector3(cell.x - (Cols - 1) / 2f, (Rows - 1) / 2f - cell.y, 0f);
-
-    static bool IsWall(Vector2Int cell)
-    {
-        int tile = TileAt(cell);
-        return (tile >= 1 && tile <= 4) || tile == 7 || tile == 8;
-    }
-
-    static bool IsStraight(int tile) => tile == 2 || tile == 4 || tile == 8;
-
-    static bool StraightIsHorizontal(Vector2Int cell)
-    {
-        int horizontal = (IsWall(cell + Left) ? 1 : 0) + (IsWall(cell + Right) ? 1 : 0);
-        int vertical = (IsWall(cell + Up) ? 1 : 0) + (IsWall(cell + Down) ? 1 : 0);
-        return horizontal >= vertical;
-    }
-
-    // How strongly the wall next to cell (in direction dir) joins onto it
-    static int ConnectScore(Vector2Int cell, Vector2Int dir)
-    {
-        Vector2Int neighbour = cell + dir;
-        if (!IsWall(neighbour)) return 0;
-        if (IsStraight(TileAt(neighbour))) return StraightIsHorizontal(neighbour) == (dir.y == 0) ? 2 : 0;
-        return 1;
-    }
-
-    // Base sprites: corners join Left+Down, the T junction stem points Down,
-    // outside/ghost walls are horizontal and inside walls are vertical
-    public static float GetWallRotation(Vector2Int cell)
-    {
-        switch (TileAt(cell))
-        {
-            case 2:
-            case 8:
-                return StraightIsHorizontal(cell) ? 0f : 90f;
-            case 4:
-                return StraightIsHorizontal(cell) ? 90f : 0f;
-            case 1:
-            case 3:
-            {
-                int best = 0, bestScore = -1;
-                for (int k = 0; k < 4; k++)
-                {
-                    int a = ConnectScore(cell, RotationOrder[k]);
-                    int b = ConnectScore(cell, RotationOrder[(k + 1) % 4]);
-                    if (a == 0 || b == 0) continue;
-                    if (a + b > bestScore) { bestScore = a + b; best = k; }
-                }
-                return best * 90f;
-            }
-            case 7:
-                for (int k = 0; k < 4; k++)
-                {
-                    Vector2Int dir = RotationOrder[k];
-                    if (ConnectScore(cell, dir) > 0 && ConnectScore(cell, -dir) == 0) return (k - 1) * 90f;
-                }
-                return 0f;
-        }
-        return 0f;
-    }
 }
