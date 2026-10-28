@@ -3,8 +3,6 @@ using UnityEngine;
 
 public enum GhostState { Normal, Scared, Recovering, Dead }
 
-// Sharks move exactly like PacStudent (lerp cell to cell at a fixed speed) but choose their next cell themselves
-// at the end of every lerp. They never stop, never reverse unless there is no other way, and never teleport.
 public class GhostController : MonoBehaviour
 {
     [Range(1, 4)] public int ghostNumber = 1;
@@ -27,7 +25,6 @@ public class GhostController : MonoBehaviour
     int waypointIndex = -1;
     int stepsTowardWaypoint;
 
-    // Normal: 90% of PacStudent. Scared, Recovering and Dead: half of Normal.
     float NormalSpeed => pacStudentSpeed * 0.9f;
     float Speed => State == GhostState.Normal ? NormalSpeed : NormalSpeed * 0.5f;
 
@@ -60,7 +57,6 @@ public class GhostController : MonoBehaviour
         if (!isLerping) ChooseNextMove();
     }
 
-    // Dead sharks swim in a straight line back to their start position, through all walls
     void SwimHome()
     {
         Vector3 home = LevelGenerator.CellToWorld(startCell);
@@ -75,7 +71,6 @@ public class GhostController : MonoBehaviour
 
     void ChooseNextMove()
     {
-        // Valid moves that do not go back to the previous cell; reversing only when nothing else is possible
         List<Vector2Int> options = new List<Vector2Int>();
         foreach (Vector2Int dir in LevelGenerator.Directions)
         {
@@ -111,7 +106,6 @@ public class GhostController : MonoBehaviour
         PlayStateAnimation();
     }
 
-    // Sharks 1 and 3 leave through the top gap, 2 and 4 through the bottom gap
     Vector2Int ExitTarget()
     {
         bool top = ghostNumber == 1 || ghostNumber == 3;
@@ -124,7 +118,6 @@ public class GhostController : MonoBehaviour
     float DistanceToPacStudent(Vector2Int fromCell) =>
         Vector2.Distance(LevelGenerator.CellToWorld(fromCell), GameManager.Instance.pacStudent.transform.position);
 
-    // Shark 1 (and every scared shark): PacStudent ends up further away or the same distance
     Vector2Int AwayFromPacStudent(List<Vector2Int> options)
     {
         float current = DistanceToPacStudent(cell);
@@ -133,7 +126,6 @@ public class GhostController : MonoBehaviour
         return valid[Random.Range(0, valid.Count)];
     }
 
-    // Shark 2: PacStudent ends up closer or the same distance
     Vector2Int TowardPacStudent(List<Vector2Int> options)
     {
         float current = DistanceToPacStudent(cell);
@@ -142,7 +134,6 @@ public class GhostController : MonoBehaviour
         return valid[Random.Range(0, valid.Count)];
     }
 
-    // Corners of the outermost corridor loop, in clockwise order (top edge left to right first)
     static readonly Vector2Int[] OuterLoop =
     {
         new Vector2Int(1, 1), new Vector2Int(12, 1), new Vector2Int(12, 5), new Vector2Int(15, 5),
@@ -152,7 +143,6 @@ public class GhostController : MonoBehaviour
         new Vector2Int(1, 20), new Vector2Int(6, 20), new Vector2Int(6, 8), new Vector2Int(1, 8),
     };
 
-    // Shark 4: clockwise around the map along the outside wall, heading for each corner of the outer loop in turn
     Vector2Int Clockwise(List<Vector2Int> options)
     {
         if (waypointIndex < 0)
@@ -164,7 +154,6 @@ public class GhostController : MonoBehaviour
         }
 
         stepsTowardWaypoint++;
-        // Move on once the corner is reached (or skip it if the shark has been stuck going around a block)
         if (cell == OuterLoop[waypointIndex] || stepsTowardWaypoint > 40)
         {
             waypointIndex = (waypointIndex + 1) % OuterLoop.Length;
@@ -192,7 +181,6 @@ public class GhostController : MonoBehaviour
 
     public void SetState(GhostState newState)
     {
-        // Shark 4 picks up the outer loop again from wherever it is once it stops fleeing
         if (newState == GhostState.Normal && State != GhostState.Normal) waypointIndex = -1;
         State = newState;
         if (newState == GhostState.Dead) isLerping = false;

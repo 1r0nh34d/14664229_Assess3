@@ -2,7 +2,6 @@ using UnityEngine;
 
 public static class TimeFormat
 {
-    // mm:ss:cc where cc is hundredths of a second, e.g. 01:32:25 is 1 minute, 32 seconds and 250 milliseconds
     public static string Format(float seconds)
     {
         int hundredths = Mathf.FloorToInt(seconds * 100f);

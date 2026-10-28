@@ -7,7 +7,6 @@ using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
 
-// Asset, audio and UI helpers shared by the PacStudent scene builders.
 public static class BuilderUtils
 {
     public const string SpritesDir = "Assets/Sprites";
@@ -21,7 +20,6 @@ public static class BuilderUtils
     static Font uiFont;
     static Font UIFont => uiFont != null ? uiFont : (uiFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf"));
 
-    // StartScene first so it is the scene the game opens on
     public static void SetBuildScenes()
     {
         EditorBuildSettings.scenes = new[] { "StartScene", "Level1" }
@@ -30,8 +28,6 @@ public static class BuilderUtils
             .Select(path => new EditorBuildSettingsScene(path, true))
             .ToArray();
     }
-
-    // ---------------------------------------------------------------- Audio
 
     [MenuItem("PacStudent/Refresh Audio Library")]
     public static GameAudio RefreshAudioLibrary()
@@ -81,8 +77,6 @@ public static class BuilderUtils
         return source;
     }
 
-    // ---------------------------------------------------------------- UI
-
     public static void AddScaler(GameObject canvasObject, float matchHeight)
     {
         CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
@@ -124,7 +118,6 @@ public static class BuilderUtils
         return image;
     }
 
-    // Highlight and press colours, plus ButtonFeedback to grow the button while it is highlighted
     public static Button CreateButton(Transform parent, string name, string label, Vector2 anchor, Vector2 pivot, Vector2 position, Vector2 size, int fontSize)
     {
         Image image = CreateImage(parent, name, AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UISprite.psd"), Color.white);
@@ -181,11 +174,8 @@ public static class BuilderUtils
         return camera;
     }
 
-    // ---------------------------------------------------------------- Assets
-
     public static Sprite LoadSprite(string path) => AssetDatabase.LoadAssetAtPath<Sprite>(path);
 
-    // prefix + 01, 02, ... until a frame is missing
     public static Sprite[] LoadFrames(string prefix)
     {
         List<Sprite> frames = new List<Sprite>();

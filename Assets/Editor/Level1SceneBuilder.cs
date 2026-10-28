@@ -11,9 +11,6 @@ using UnityEngine.Tilemaps;
 using UnityEngine.UI;
 using static BuilderUtils;
 
-// PacStudent > Build Level1 Scene creates the animation clips, Animator Controllers, pellet prefabs and the
-// Level1 scene (full level layout from LevelGenerator, PacStudent, the sharks, the HUD and the GameManager).
-// Re-running it rebuilds Level1 from scratch. PacStudent > Refresh Audio Library only re-links the audio clips.
 public static class Level1SceneBuilder
 {
     const string TilesDir = "Assets/Tiles";
@@ -21,7 +18,6 @@ public static class Level1SceneBuilder
     const string PrefabDir = "Assets/Prefabs";
     const string ScenePath = "Assets/Scenes/Level1.unity";
 
-    // Ghost 1..4
     static readonly string[] SharkNames = { "Bruce", "Jeff", "Kenny", "Lenny" };
     static readonly string[] Directions = { "Right", "Down", "Left", "Up" };
 
@@ -51,10 +47,6 @@ public static class Level1SceneBuilder
         Debug.Log(report);
     }
 
-    // ---------------------------------------------------------------- Animation
-
-    // The A3 "...Animator" controllers cycle through all of their states so each one can be previewed. They are kept in
-    // the project, but the scene uses a copy without the cycle transitions so the game scripts choose the state.
     static RuntimeAnimatorController BuildPacStudentAnimator()
     {
         string dir = AnimDir + "/PacStudent/";
@@ -79,8 +71,6 @@ public static class Level1SceneBuilder
         foreach (string direction in Directions)
             states.Add(("Walk_" + direction, CreateClip($"{dir}{shark}_Walk_{direction}.anim", LoadFrames(sprites + direction + "_"), 8f, true)));
 
-        // Hand-drawn scared/dead frames are used when they exist (per shark, or shared by all sharks);
-        // otherwise the swimming frames are tinted as a stand-in
         Sprite[] scaredLeft = null;
         foreach (string direction in Directions)
         {
@@ -114,7 +104,6 @@ public static class Level1SceneBuilder
         if (frames.Length > 1) SetSpriteCurve(clip, frames, frames.Length / 0.6f);
         else warnings.Add("Power pellet has only 1 frame; draw PowerPellet_02.png (needs 2 visually distinct frames)");
 
-        // Pulse and flash on top of the sprite frames
         AnimationCurve scale = new AnimationCurve(new Keyframe(0f, 1.1f), new Keyframe(0.3f, 0.65f), new Keyframe(0.6f, 1.1f));
         AnimationUtility.SetEditorCurve(clip, EditorCurveBinding.FloatCurve("", typeof(Transform), "m_LocalScale.x"), scale);
         AnimationUtility.SetEditorCurve(clip, EditorCurveBinding.FloatCurve("", typeof(Transform), "m_LocalScale.y"), scale);
@@ -160,7 +149,6 @@ public static class Level1SceneBuilder
         return clip;
     }
 
-    // Rebuilds overwrite the existing asset in place so its GUID (and every reference to it) stays the same
     static AnimationClip ReuseClip(string path, float fps)
     {
         AnimationClip clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(path);
@@ -183,7 +171,6 @@ public static class Level1SceneBuilder
     {
         ObjectReferenceKeyframe[] keys = new ObjectReferenceKeyframe[frames.Length + 1];
         for (int i = 0; i < frames.Length; i++) keys[i] = new ObjectReferenceKeyframe { time = i / fps, value = frames[i] };
-        // Extra key so the last frame is shown for a full frame before looping
         keys[frames.Length] = new ObjectReferenceKeyframe { time = frames.Length / fps, value = frames[frames.Length - 1] };
         AnimationUtility.SetObjectReferenceCurve(clip, EditorCurveBinding.PPtrCurve("", typeof(SpriteRenderer), "m_Sprite"), keys);
     }
@@ -195,8 +182,6 @@ public static class Level1SceneBuilder
         AnimationUtility.SetAnimationClipSettings(clip, settings);
     }
 
-    // States are chained in order and the last one returns to the first.
-    // Looping clips leave after 3 loops or 2 seconds (whichever is longer); non-looping clips after one play (exit time 1).
     static AnimatorController CreateCyclingController(string path, List<(string name, AnimationClip clip)> states)
     {
         AnimatorController controller = CreateController(path, states);
@@ -219,7 +204,6 @@ public static class Level1SceneBuilder
         return controller;
     }
 
-    // States only, no transitions: the first state plays by default and scripts switch with Animator.Play
     static AnimatorController CreateController(string path, List<(string name, AnimationClip clip)> states)
     {
         AnimatorController controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(path);
@@ -236,8 +220,6 @@ public static class Level1SceneBuilder
         return controller;
     }
 
-    // ---------------------------------------------------------------- Prefabs
-
     static GameObject BuildPelletPrefab(string name, Sprite sprite, bool power, RuntimeAnimatorController controller)
     {
         GameObject go = new GameObject(name);
@@ -250,7 +232,6 @@ public static class Level1SceneBuilder
         return SavePrefab(go, name);
     }
 
-    // Drawn over everything else in the level, but only visible inside the level mask
     static GameObject BuildCherryPrefab()
     {
         GameObject go = new GameObject("BonusCherry");
@@ -272,7 +253,6 @@ public static class Level1SceneBuilder
         return collider;
     }
 
-    // Only used so trigger messages are sent; Kinematic, so it never moves anything or responds to collisions
     static void AddKinematicBody(GameObject go, float radius)
     {
         Rigidbody2D body = go.AddComponent<Rigidbody2D>();
@@ -316,7 +296,6 @@ public static class Level1SceneBuilder
         shape.shapeType = ParticleSystemShapeType.Circle;
         shape.radius = 0.25f;
 
-        // Fade out and shrink over each particle's life
         ParticleSystem.ColorOverLifetimeModule colour = particles.colorOverLifetime;
         colour.enabled = true;
         Gradient fade = new Gradient();
@@ -333,17 +312,13 @@ public static class Level1SceneBuilder
         return particles;
     }
 
-    // ---------------------------------------------------------------- Scene
-
     static void BuildScene(RuntimeAnimatorController pacController, RuntimeAnimatorController[] ghostControllers,
         GameObject pelletPrefab, GameObject powerPrefab, GameObject cherryPrefab, GameAudio audioLibrary)
     {
         Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
-        // Whole level plus a strip top and bottom for the HUD; fits 16:9 and 4:3
         CreateCamera(LevelGenerator.Rows / 2f + 3f);
 
-        // Countdown, score, lives, timers, ghost states and music (intro during the countdown, then the state music)
         GameObject managerObject = new GameObject("GameManager");
         GameManager game = managerObject.AddComponent<GameManager>();
         game.levelKey = "Level1";
@@ -352,11 +327,9 @@ public static class Level1SceneBuilder
         game.musicSource = AddAudioSource(managerObject, 0.6f);
         game.sfxSource = AddAudioSource(managerObject, 1f);
 
-        // ---- Level: Grid > Walls tilemap, Pellets, PowerPellets
         GameObject level = new GameObject("Level");
         level.AddComponent<Grid>();
         level.AddComponent<LevelGenerator>();
-        // Grid origin chosen so cell (col, -row) is centred on LevelGenerator.CellToWorld(col, row)
         level.transform.position = new Vector3(-LevelGenerator.Cols / 2f, (LevelGenerator.Rows - 1) / 2f - 0.5f, 0f);
 
         GameObject wallsObject = new GameObject("Walls");
@@ -400,7 +373,6 @@ public static class Level1SceneBuilder
             }
         }
 
-        // ---- Characters: PacStudent top-left, sharks in a line inside the cage
         GameObject characters = new GameObject("Characters");
         GameObject pac = SpriteObject(characters.transform, "PacStudent", LoadSprite(SpritesDir + "/PacStudent/PacStudent_Right_01.png"), 5);
         pac.transform.position = LevelGenerator.CellToWorld(new Vector2Int(1, 1));
@@ -411,7 +383,6 @@ public static class Level1SceneBuilder
         pacStudent.animator = pacAnimator;
         pacStudent.audioLibrary = audioLibrary;
         pacStudent.moveSource = AddAudioSource(pac, 0.7f);
-        // Sand kicked up behind PacStudent while swimming along the sea floor
         pacStudent.dust = CreateParticles("SandDust", pac.transform, new Color(0.85f, 0.72f, 0.45f), new Color(0.6f, 0.48f, 0.3f),
             0.35f, 0.6f, 0.6f, 25f, 0, true, -0.05f, 3);
         pacStudent.dust.transform.localPosition = new Vector3(0f, -0.35f, 0f);
@@ -441,7 +412,6 @@ public static class Level1SceneBuilder
             CreateGhostLabel(ghost.transform, i + 1);
         }
 
-        // ---- Bonus cherry: spawned by CherryController, only visible inside the level
         GameObject mask = new GameObject("LevelMask");
         mask.AddComponent<SpriteMask>().sprite = LoadSprite(SpritesDir + "/Level/Tile_OutsideWall.png");
         mask.transform.localScale = new Vector3(LevelGenerator.Cols, LevelGenerator.Rows, 1f);
@@ -455,7 +425,6 @@ public static class Level1SceneBuilder
         EditorSceneManager.SaveScene(scene, ScenePath);
     }
 
-    // World space canvas with the ghost's number, shown above its head
     static void CreateGhostLabel(Transform ghost, int number)
     {
         GameObject canvasObject = new GameObject($"Ghost{number}Canvas", typeof(RectTransform), typeof(Canvas));
@@ -471,8 +440,6 @@ public static class Level1SceneBuilder
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(100f, 60f), FontStyle.Bold);
     }
 
-    // Screen space HUD: score and timer along the top, lives, scared timer and Exit along the bottom,
-    // and the countdown / game over overlay (hidden until needed)
     static HUDController BuildHud(string levelName)
     {
         GameObject hudObject = new GameObject("HUD");
@@ -517,7 +484,6 @@ public static class Level1SceneBuilder
         hud.exitButton = CreateButton(t, "ExitButton", "EXIT", bottomRight, right, new Vector2(-30f, 46f), new Vector2(180f, 66f), 40);
         UnityEventTools.AddPersistentListener(hud.exitButton.onClick, hud.ExitToStart);
 
-        // Drawn last so it covers everything, including the Exit button
         hud.blocker = CreateImage(t, "Blocker", null, new Color(0f, 0f, 0f, 0.65f));
         hud.blocker.raycastTarget = true;
         SetStretch((RectTransform)hud.blocker.transform);
@@ -543,8 +509,6 @@ public static class Level1SceneBuilder
         renderer.sortingOrder = sortingOrder;
         return go;
     }
-
-    // ---------------------------------------------------------------- Helpers
 
     static Sprite[] FirstFound(params string[] prefixes)
     {

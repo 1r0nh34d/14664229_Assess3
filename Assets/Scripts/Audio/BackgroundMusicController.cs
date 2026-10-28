@@ -1,8 +1,6 @@
 using System.Collections;
 using UnityEngine;
 
-// Plays the intro music, then after the intro finishes or 3 seconds pass (whichever is first)
-// switches to the ghost normal-state music on loop.
 [RequireComponent(typeof(AudioSource))]
 public class BackgroundMusicController : MonoBehaviour
 {
