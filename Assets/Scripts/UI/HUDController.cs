@@ -2,7 +2,6 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
-// In-game HUD: score, lives, timers, level name, the round start countdown and the game over text.
 public class HUDController : MonoBehaviour
 {
     public Text scoreText;
@@ -30,13 +29,11 @@ public class HUDController : MonoBehaviour
 
     public void SetLevelName(string levelName) => levelNameText.text = levelName;
 
-    // One life indicator sprite per remaining life
     public void SetLives(int lives)
     {
         for (int i = 0; i < lifeIcons.Length; i++) lifeIcons[i].enabled = i < lives;
     }
 
-    // Hidden whenever the value is zero
     public void SetScaredTimer(float seconds)
     {
         int whole = Mathf.CeilToInt(seconds);

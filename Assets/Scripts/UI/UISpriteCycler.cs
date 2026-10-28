@@ -1,7 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
 
-// Flip-book animation for a UI Image (the swimming PacStudent and sharks on the title screen).
 [RequireComponent(typeof(Image))]
 public class UISpriteCycler : MonoBehaviour
 {

@@ -1,8 +1,6 @@
 using UnityEditor;
 using UnityEditor.SceneManagement;
 
-// Pressing Play in the editor always starts from the main menu (StartScene), whichever scene is open,
-// the same as the built game. Untick PacStudent > Play From Start Scene to play the open scene directly.
 [InitializeOnLoad]
 public static class PlayFromStartScene
 {

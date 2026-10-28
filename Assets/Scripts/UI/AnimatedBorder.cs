@@ -1,15 +1,13 @@
 using UnityEngine;
 using UnityEngine.UI;
 
-// Bubbles that travel around the edge of this RectTransform. The rect is stretched to the canvas,
-// so the border follows the screen's aspect ratio.
 [RequireComponent(typeof(RectTransform))]
 public class AnimatedBorder : MonoBehaviour
 {
     public Sprite dotSprite;
     public int dotCount = 48;
     public float dotSize = 26f;
-    public float speed = 120f; // canvas units per second
+    public float speed = 120f;
     public Color colourA = new Color(1f, 0.85f, 0.2f);
     public Color colourB = new Color(0.3f, 0.9f, 1f);
 
@@ -49,7 +47,6 @@ public class AnimatedBorder : MonoBehaviour
         }
     }
 
-    // Clockwise from the bottom-left corner
     static Vector2 PointOnPerimeter(float d, Vector2 size)
     {
         if (d < size.y) return new Vector2(0f, d);

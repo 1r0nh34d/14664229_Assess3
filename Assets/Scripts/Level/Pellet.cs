@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// A pellet or power pellet sitting on a grid cell. Keeps a registry so PacStudent can tell if the next cell has food.
 public class Pellet : MonoBehaviour
 {
     public bool isPowerPellet;

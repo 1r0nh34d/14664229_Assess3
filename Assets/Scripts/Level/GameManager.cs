@@ -4,13 +4,12 @@ using UnityEngine.SceneManagement;
 
 public enum GhostMode { Normal, Scared, Recovering }
 
-// Runs a round: countdown, score, lives, timers, the sharks' scared state, music, death and game over.
 public class GameManager : MonoBehaviour
 {
     public static GameManager Instance { get; private set; }
 
     [Header("Level")]
-    public string levelKey = "Level1"; // PlayerPrefs key prefix
+    public string levelKey = "Level1";
     public string levelName = "Level 1";
     public string startSceneName = "StartScene";
 
@@ -57,7 +56,6 @@ public class GameManager : MonoBehaviour
         StartCoroutine(RoundStart());
     }
 
-    // 3, 2, 1, GO! over a blocking image with the intro music, then the round starts
     IEnumerator RoundStart()
     {
         SetActorsFrozen(true);
@@ -101,8 +99,6 @@ public class GameManager : MonoBehaviour
         foreach (GhostController ghost in ghosts) ghost.SetFrozen(frozen);
     }
 
-    // ---------- Scoring ----------
-
     public void AddScore(int amount)
     {
         Score += amount;
@@ -135,9 +131,6 @@ public class GameManager : MonoBehaviour
         cherryController.CherryEaten(cherry);
     }
 
-    // ---------- Ghost states ----------
-
-    // Dead sharks keep their Dead state; everyone else follows the global mode
     void SetMode(GhostMode mode)
     {
         Mode = mode;
@@ -168,8 +161,6 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    // A dead shark back at its spawn position rejoins in the current global mode; the music changes back
-    // once no other shark is dead
     public void GhostReachedHome(GhostController ghost)
     {
         ghost.SetState((GhostState)Mode);
@@ -182,8 +173,6 @@ public class GameManager : MonoBehaviour
             if (ghost.State == GhostState.Dead) return true;
         return false;
     }
-
-    // ---------- Death and game over ----------
 
     IEnumerator PacStudentDeath()
     {
@@ -202,7 +191,6 @@ public class GameManager : MonoBehaviour
             yield break;
         }
 
-        // Back to the top-left corner waiting for input, sharks back home and Normal
         pacStudent.ResetToStart();
         foreach (GhostController ghost in ghosts) ghost.ResetToStart();
         Mode = GhostMode.Normal;
@@ -233,7 +221,6 @@ public class GameManager : MonoBehaviour
         SceneManager.LoadScene(startSceneName);
     }
 
-    // Saved when the score beats the previous best, or equals it in a lower time
     void SaveHighScore()
     {
         string scoreKey = levelKey + "_HighScore";
@@ -249,8 +236,6 @@ public class GameManager : MonoBehaviour
             PlayerPrefs.Save();
         }
     }
-
-    // ---------- Audio ----------
 
     void UpdateMusic()
     {

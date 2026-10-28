@@ -3,7 +3,6 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
-// Title screen: shows the saved high score and time for each level, plays the start music and opens the levels.
 public class StartSceneManager : MonoBehaviour
 {
     public GameAudio audioLibrary;
@@ -42,10 +41,8 @@ public class StartSceneManager : MonoBehaviour
 
     public void LoadLevel1() => StartCoroutine(LoadAfterClick(level1Scene));
 
-    // Level 2 is the Design Innovation level (100% band), which this project does not include yet
     public void PressLevel2() => PlayClick();
 
-    // Small delay so the click sound is heard before the scene changes
     IEnumerator LoadAfterClick(string sceneName)
     {
         if (loading) yield break;

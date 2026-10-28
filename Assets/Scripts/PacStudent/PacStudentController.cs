@@ -1,11 +1,9 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-// Grid based movement: PacStudent lerps from one cell centre to the next at a fixed, frame-rate independent speed.
-// lastInput is the last key pressed, currentInput is the direction PacStudent is actually travelling.
 public class PacStudentController : MonoBehaviour
 {
-    public float speed = 5f; // tiles per second
+    public float speed = 5f;
     public Vector2Int startCell = new Vector2Int(1, 1);
 
     public Animator animator;
@@ -43,7 +41,6 @@ public class PacStudentController : MonoBehaviour
 
         if (isLerping)
         {
-            // 1 tile per lerp, so progress per second equals tiles per second
             lerpProgress += Time.deltaTime * speed;
             transform.position = Vector3.Lerp(lerpFrom, lerpTo, Mathf.Min(lerpProgress, 1f));
             if (lerpProgress >= 1f)
@@ -56,7 +53,6 @@ public class PacStudentController : MonoBehaviour
         if (!isLerping) TryMove();
     }
 
-    // Only overwritten when the player presses a new key
     void GatherInput()
     {
         pressedThisFrame = false;
@@ -93,7 +89,6 @@ public class PacStudentController : MonoBehaviour
         return tile == 0 || tile == 5 || tile == 6;
     }
 
-    // Stepping off the left/right edge of the map from the tunnel row is a teleport
     static bool IsTeleportExit(Vector2Int cell) =>
         cell.y >= 0 && cell.y < LevelGenerator.Rows && (cell.x < 0 || cell.x >= LevelGenerator.Cols);
 
@@ -104,7 +99,6 @@ public class PacStudentController : MonoBehaviour
         return IsWalkable(next) || IsTeleportExit(next);
     }
 
-    // Try lastInput first; if that is blocked keep going in currentInput; if that is blocked too, stop
     void TryMove()
     {
         if (CanMove(lastInput))
@@ -127,7 +121,6 @@ public class PacStudentController : MonoBehaviour
         Vector2Int next = cell + direction;
         if (IsTeleportExit(next))
         {
-            // Jump to the tunnel on the other side, then keep moving inwards
             cell.x = next.x < 0 ? LevelGenerator.Cols - 1 : 0;
             transform.position = LevelGenerator.CellToWorld(cell);
             next = cell + direction;
@@ -144,7 +137,6 @@ public class PacStudentController : MonoBehaviour
         animator.speed = 1f;
         SetDust(true);
 
-        // Separate sound for swimming onto a pellet and swimming into empty space
         AudioClip clip = Pellet.ExistsAt(next) ? audioLibrary.moveEat : audioLibrary.move;
         if (moveSource != null && clip != null && (moveSource.clip != clip || !moveSource.isPlaying))
         {
@@ -163,7 +155,6 @@ public class PacStudentController : MonoBehaviour
             SetDust(false);
             if (moveSource != null) moveSource.Stop();
 
-            // First frame of running into a wall
             Vector2Int blocked = KeyToDirection(currentInput);
             if (LevelGenerator.IsWall(cell + blocked)) BumpWall(blocked);
         }
@@ -173,7 +164,6 @@ public class PacStudentController : MonoBehaviour
         }
     }
 
-    // Particles and sound at the point where PacStudent meets the wall
     void BumpWall(Vector2Int direction)
     {
         Vector3 worldDirection = new Vector3(direction.x, -direction.y, 0f);
@@ -202,9 +192,6 @@ public class PacStudentController : MonoBehaviour
         if (on && !dust.isPlaying) dust.Play();
     }
 
-    // Collisions are registered with triggers (kinematic Rigidbody2D, no physics response).
-    // Stay rather than Enter so anything already overlapping when control is enabled (the pellet under the
-    // start cell, a shark that recovers on top of PacStudent) still counts.
     void OnTriggerStay2D(Collider2D other)
     {
         if (!controlEnabled) return;
@@ -256,7 +243,6 @@ public class PacStudentController : MonoBehaviour
         if (moveSource != null) moveSource.Stop();
         if (animator != null)
         {
-            // Facing right, waiting for the first key press
             animator.Play("Walk_Right", 0, 0f);
             animator.speed = 0f;
         }
