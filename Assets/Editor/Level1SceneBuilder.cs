@@ -3,14 +3,16 @@ using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.Animations;
+using UnityEditor.Events;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.Tilemaps;
+using UnityEngine.UI;
 using static BuilderUtils;
 
 // PacStudent > Build Level1 Scene creates the animation clips, Animator Controllers, pellet prefabs and the
-// Level1 scene (full level layout from LevelGenerator, PacStudent, the sharks and the background music).
+// Level1 scene (full level layout from LevelGenerator, PacStudent, the sharks, the HUD and the background music).
 // Re-running it rebuilds Level1 from scratch. PacStudent > Assign Audio Clips only re-links the audio.
 public static class Level1SceneBuilder
 {
@@ -284,14 +286,8 @@ public static class Level1SceneBuilder
     {
         Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
-        GameObject cameraObject = new GameObject("Main Camera") { tag = "MainCamera" };
-        Camera camera = cameraObject.AddComponent<Camera>();
-        cameraObject.AddComponent<AudioListener>();
-        camera.orthographic = true;
-        camera.orthographicSize = LevelGenerator.Rows / 2f + 1f; // whole level plus a small border
-        camera.transform.position = new Vector3(0f, 0f, -10f);
-        camera.clearFlags = CameraClearFlags.SolidColor;
-        camera.backgroundColor = new Color(0.02f, 0.07f, 0.16f);
+        // Whole level plus a strip top and bottom for the HUD; fits 16:9 and 4:3
+        CreateCamera(LevelGenerator.Rows / 2f + 3f);
 
         GameObject audioObject = new GameObject("BackgroundMusic");
         AudioSource source = audioObject.AddComponent<AudioSource>();
@@ -360,9 +356,86 @@ public static class Level1SceneBuilder
                 LoadSprite($"{SpritesDir}/Ghosts/Shark_{SharkNames[i]}_Right_01.png"), 4);
             ghost.transform.position = LevelGenerator.CellToWorld(new Vector2Int(12 + i, 14));
             ghost.AddComponent<Animator>().runtimeAnimatorController = ghostControllers[i];
+            CreateGhostLabel(ghost.transform, i + 1);
         }
 
+        BuildHud("Level 1");
+        CreateEventSystem();
+
         EditorSceneManager.SaveScene(scene, ScenePath);
+    }
+
+    // World space canvas with the ghost's number, shown above its head
+    static void CreateGhostLabel(Transform ghost, int number)
+    {
+        GameObject canvasObject = new GameObject($"Ghost{number}Canvas", typeof(RectTransform), typeof(Canvas));
+        canvasObject.transform.SetParent(ghost, false);
+        Canvas canvas = canvasObject.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.sortingOrder = 30;
+        RectTransform rect = (RectTransform)canvasObject.transform;
+        rect.sizeDelta = new Vector2(100f, 60f);
+        rect.localScale = Vector3.one * 0.01f;
+        rect.localPosition = new Vector3(0f, 0.85f, 0f);
+        CreateText(canvasObject.transform, "Number", number.ToString(), 52, TextAnchor.MiddleCenter, Color.white,
+            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(100f, 60f), FontStyle.Bold);
+    }
+
+    // Screen space HUD: score and timer along the top, lives, scared timer and Exit along the bottom,
+    // and the countdown / game over overlay (hidden until needed)
+    static HUDController BuildHud(string levelName)
+    {
+        GameObject hudObject = new GameObject("HUD");
+        Canvas canvas = hudObject.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        AddScaler(hudObject, 1f);
+        hudObject.AddComponent<GraphicRaycaster>();
+        HUDController hud = hudObject.AddComponent<HUDController>();
+        Transform t = hudObject.transform;
+
+        Vector2 topLeft = new Vector2(0f, 1f), topRight = new Vector2(1f, 1f), top = new Vector2(0.5f, 1f);
+        Vector2 bottomLeft = Vector2.zero, bottomRight = new Vector2(1f, 0f), bottom = new Vector2(0.5f, 0f);
+        Vector2 left = new Vector2(0f, 0.5f), right = new Vector2(1f, 0.5f), centre = new Vector2(0.5f, 0.5f);
+
+        CreateText(t, "ScoreLabel", "SCORE", 38, TextAnchor.MiddleLeft, Aqua, topLeft, left, new Vector2(30f, -46f), new Vector2(160f, 60f), FontStyle.Bold);
+        hud.scoreText = CreateText(t, "Score", "000000", 48, TextAnchor.MiddleLeft, Color.white, topLeft, left, new Vector2(185f, -46f), new Vector2(240f, 60f), FontStyle.Bold);
+        hud.levelNameText = CreateText(t, "LevelName", levelName, 50, TextAnchor.MiddleCenter, Gold, top, centre, new Vector2(0f, -46f), new Vector2(400f, 60f), FontStyle.Bold);
+        hud.timeText = CreateText(t, "GameTimer", "00:00:00", 48, TextAnchor.MiddleRight, Color.white, topRight, right, new Vector2(-30f, -46f), new Vector2(240f, 60f), FontStyle.Bold);
+        CreateText(t, "TimeLabel", "TIME", 38, TextAnchor.MiddleRight, Aqua, topRight, right, new Vector2(-280f, -46f), new Vector2(130f, 60f), FontStyle.Bold);
+
+        CreateText(t, "LivesLabel", "LIVES", 38, TextAnchor.MiddleLeft, Aqua, bottomLeft, left, new Vector2(30f, 46f), new Vector2(140f, 60f), FontStyle.Bold);
+        GameObject lives = new GameObject("Lives", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+        lives.transform.SetParent(t, false);
+        SetRect((RectTransform)lives.transform, bottomLeft, left, new Vector2(170f, 46f), new Vector2(240f, 64f));
+        HorizontalLayoutGroup layout = lives.GetComponent<HorizontalLayoutGroup>();
+        layout.spacing = 10f;
+        layout.childControlWidth = layout.childControlHeight = false;
+        layout.childForceExpandWidth = layout.childForceExpandHeight = false;
+        Sprite lifeSprite = LoadSprite(SpritesDir + "/Items/LifeIcon.png");
+        hud.lifeIcons = new Image[3];
+        for (int i = 0; i < 3; i++)
+        {
+            Image icon = CreateImage(lives.transform, "Life" + (i + 1), lifeSprite, Color.white);
+            ((RectTransform)icon.transform).sizeDelta = new Vector2(64f, 64f);
+            hud.lifeIcons[i] = icon;
+        }
+
+        hud.scaredTimerText = CreateText(t, "GhostScaredTimer", "Scared: 10", 46, TextAnchor.MiddleCenter, new Color(0.45f, 0.65f, 1f),
+            bottom, centre, new Vector2(0f, 46f), new Vector2(400f, 60f), FontStyle.Bold);
+        hud.scaredTimerText.gameObject.SetActive(false);
+
+        hud.exitButton = CreateButton(t, "ExitButton", "EXIT", bottomRight, right, new Vector2(-30f, 46f), new Vector2(180f, 66f), 40);
+        UnityEventTools.AddPersistentListener(hud.exitButton.onClick, hud.ExitToStart);
+
+        // Drawn last so it covers everything, including the Exit button
+        hud.blocker = CreateImage(t, "Blocker", null, new Color(0f, 0f, 0f, 0.65f));
+        hud.blocker.raycastTarget = true;
+        SetStretch((RectTransform)hud.blocker.transform);
+        hud.countdownText = CreateText(t, "Countdown", "3", 260, TextAnchor.MiddleCenter, Gold, centre, centre, Vector2.zero, new Vector2(900f, 400f), FontStyle.Bold);
+        hud.gameOverText = CreateText(t, "GameOver", "GAME OVER", 170, TextAnchor.MiddleCenter, new Color(1f, 0.35f, 0.35f), centre, centre, Vector2.zero, new Vector2(1400f, 300f), FontStyle.Bold);
+        foreach (Component overlay in new Component[] { hud.blocker, hud.countdownText, hud.gameOverText })
+            overlay.gameObject.SetActive(false);
+        return hud;
     }
 
     static GameObject Child(Transform parent, string name)
