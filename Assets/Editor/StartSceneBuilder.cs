@@ -6,8 +6,6 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using static BuilderUtils;
 
-// PacStudent > Build Start Scene creates the title screen: title, subtitle, PacStudent and the sharks swimming,
-// an animated bubble border, the Level 1 / Level 2 buttons and each level's saved high score and time.
 public static class StartSceneBuilder
 {
     static readonly string[] SharkNames = { "Bruce", "Jeff", "Kenny", "Lenny" };
@@ -21,7 +19,6 @@ public static class StartSceneBuilder
         Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         CreateCamera(5f);
 
-        // Matching height keeps everything on screen for both 16:9 and 4:3
         GameObject canvasObject = new GameObject("StartCanvas");
         Canvas canvas = canvasObject.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -30,7 +27,6 @@ public static class StartSceneBuilder
         Transform t = canvasObject.transform;
         Vector2 centre = new Vector2(0.5f, 0.5f), top = new Vector2(0.5f, 1f), bottom = new Vector2(0.5f, 0f);
 
-        // Bubbles travelling around the edge of the canvas, so the border follows the screen's aspect ratio
         GameObject border = new GameObject("AnimatedBorder", typeof(RectTransform));
         border.transform.SetParent(t, false);
         RectTransform borderRect = (RectTransform)border.transform;
@@ -44,7 +40,6 @@ public static class StartSceneBuilder
         CreateText(t, "Subtitle", "Deep Sea Dash - out-swim the sharks of the coral reef!", 46, TextAnchor.MiddleCenter, Aqua,
             top, centre, new Vector2(0f, -310f), new Vector2(1200f, 70f), FontStyle.Italic);
 
-        // PacStudent fleeing from the four sharks
         Image pacImage = CreateImage(t, "PacStudent", LoadSprite(SpritesDir + "/PacStudent/PacStudent_Left_01.png"), Color.white);
         SetRect((RectTransform)pacImage.transform, centre, centre, new Vector2(-380f, 70f), new Vector2(140f, 140f));
         pacImage.gameObject.AddComponent<UISpriteCycler>().frames = LoadFrames(SpritesDir + "/PacStudent/PacStudent_Left_");

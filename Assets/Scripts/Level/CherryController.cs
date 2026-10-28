@@ -1,16 +1,13 @@
 using UnityEngine;
 
-// Spawns the bonus cherry at a random point just outside the level and lerps it in a straight line through the level
-// centre to the far side, ignoring walls, ghosts and pellets. A SpriteMask over the level means it is only visible
-// while inside the level bounds. The next cherry spawns 5 seconds after the previous one is destroyed.
 public class CherryController : MonoBehaviour
 {
     public GameObject cherryPrefab;
     public float speed = 4f;
     public float spawnDelay = 5f;
     public Vector3 levelCentre = Vector3.zero;
-    public float levelRadius = 21f;   // just outside the corners of the level
-    public float despawnRadius = 40f; // past the edge of the camera view
+    public float levelRadius = 21f;
+    public float despawnRadius = 40f;
 
     Cherry current;
     Vector3 lerpFrom;
@@ -42,7 +39,6 @@ public class CherryController : MonoBehaviour
 
     void Spawn()
     {
-        // A random direction gives a different start point every time
         Vector2 direction = Random.insideUnitCircle.normalized;
         if (direction == Vector2.zero) direction = Vector2.right;
         lerpFrom = levelCentre + (Vector3)(direction * levelRadius);

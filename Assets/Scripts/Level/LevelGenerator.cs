@@ -1,12 +1,7 @@
 using UnityEngine;
 
-// Holds the level layout (the A3 levelMap) and the grid helpers used by PacStudent, the ghosts and the editor builder.
-// Grid cells are Vector2Int(x = column, y = row) with row 0 at the TOP of the map.
 public class LevelGenerator : MonoBehaviour
 {
-    // Top-left quadrant of the level.
-    // 0 empty, 1 outside corner, 2 outside wall, 3 inside corner, 4 inside wall,
-    // 5 pellet, 6 power pellet, 7 T junction, 8 ghost exit wall
     public static readonly int[,] levelMap =
     {
         {1,2,2,2,2,2,2,2,2,2,2,2,2,7},
@@ -31,7 +26,6 @@ public class LevelGenerator : MonoBehaviour
     public static readonly Vector2Int Left = new Vector2Int(-1, 0);
     public static readonly Vector2Int Right = new Vector2Int(1, 0);
 
-    // Inside of the ghost spawn box (the empty cells between the ghost exit walls)
     public static readonly RectInt SpawnArea = new RectInt(11, 13, 6, 3);
 
     static int[,] fullMap;
@@ -40,7 +34,6 @@ public class LevelGenerator : MonoBehaviour
     public static int Rows => FullMap.GetLength(0);
     public static int Cols => FullMap.GetLength(1);
 
-    // Mirror the quadrant horizontally, then vertically (the bottom row of the quadrant is the middle row and is not repeated)
     static int[,] BuildFullMap()
     {
         int quadRows = levelMap.GetLength(0);
@@ -70,11 +63,8 @@ public class LevelGenerator : MonoBehaviour
 
     public static readonly Vector2Int[] Directions = { Up, Left, Down, Right };
 
-    // The spawn box and its two gaps (the ghost exit walls)
     public static bool IsInSpawn(Vector2Int cell) => SpawnArea.Contains(cell) || TileAt(cell) == 8;
 
-    // Ghosts walk the same corridors as PacStudent. The exit walls only let ghosts out of the spawn box
-    // (or dead ghosts back in), and the tunnel ends count as walls so ghosts cannot teleport.
     public static bool IsGhostWalkable(Vector2Int from, Vector2Int to)
     {
         int tile = TileAt(to);
@@ -84,9 +74,6 @@ public class LevelGenerator : MonoBehaviour
         return tile == 0 || tile == 5 || tile == 6;
     }
 
-    // ---------- Wall rotation (used by the editor builder to lay out the level) ----------
-
-    // Ordered so that rotating a piece +90 degrees maps each direction to the next one
     static readonly Vector2Int[] RotationOrder = { Left, Down, Right, Up };
 
     static bool IsStraight(int tile) => tile == 2 || tile == 4 || tile == 8;
@@ -98,7 +85,6 @@ public class LevelGenerator : MonoBehaviour
         return horizontal >= vertical;
     }
 
-    // How strongly the wall next to cell (in direction dir) joins onto it
     static int ConnectScore(Vector2Int cell, Vector2Int dir)
     {
         Vector2Int neighbour = cell + dir;
@@ -107,9 +93,6 @@ public class LevelGenerator : MonoBehaviour
         return 1;
     }
 
-    // Z rotation (degrees) for the wall sprite at this cell.
-    // Base sprites: corners join Left+Down, the T junction stem points Down,
-    // outside/ghost walls are horizontal and inside walls are vertical.
     public static float GetWallRotation(Vector2Int cell)
     {
         switch (TileAt(cell))
